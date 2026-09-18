@@ -1,0 +1,112 @@
+.set-section + .set-section {
+  margin-top: 1.4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--border);
+}
+.set-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  min-height: 1.6rem;
+}
+.set-section-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text);
+}
+.set-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.1rem 0 0.55rem;
+  min-height: 1.7rem;
+}
+.set-group-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.set-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.1rem;
+}
+.set-field + .set-field {
+  margin-top: 0.55rem;
+}
+.set-field-label {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.set-field-stack {
+  display: block;
+}
+.set-field-stack .set-field-label {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+.set-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  /* The panel is wide; a hint that fits on one line reads as one thought. */
+  max-width: 80ch;
+}
+.set-hint code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+.set-path {
+  margin: 0.45rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.set-segmented {
+  display: inline-flex;
+
+  gap: 4px;
+  padding: 3px;
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+
+  box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.06);
+}
+.set-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.set-seg:hover {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.set-seg[aria-pressed="true"],
+.set-seg[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-control);
+}
+.set-error {
+  color: var(--danger);
+}

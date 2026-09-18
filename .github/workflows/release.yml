@@ -1,0 +1,402 @@
+name: Release
+
+# Dispatch with a bump (npm's names, or an exact version), or push a v* tag.
+# A version with a "-" becomes a GitHub pre-release: invisible to releases/latest, so the updater
+# feed never offers it.
+# The release stays a draft until every bundle has been read back; `publish` lifts it.
+# Nothing is pushed until then: the bump is applied to each checkout, and the bump commit and tag
+# land on the branch only after every platform and the update feed have passed. A failed run
+# leaves the branch and tags untouched, plus a draft release that a re-run reuses.
+# TAURI_SIGNING_PRIVATE_KEY is required. Apple secrets are optional; without them macOS bundles are
+# unsigned.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump'
+        type: choice
+        default: none
+        options:
+          - none
+          - patch
+          - minor
+          - major
+          - prerelease
+          - prepatch
+          - preminor
+          - premajor
+      version:
+        description: 'Exact version instead of a bump, e.g. 0.2.0-rc.1'
+        type: string
+        default: ''
+      preid:
+        description: 'Pre-release identifier for the pre* bumps'
+        type: string
+        default: 'rc'
+  push:
+    tags:
+      - 'v*'
+
+# Queue, never cancel: a half-cancelled run leaves a tag with no bundles.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Version & tag
+    runs-on: ubuntu-22.04
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      bumped: ${{ steps.version.outputs.bumped }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Resolves the bump to a version string. The files it edits are thrown away with this
+      # checkout; `build` and `publish` re-apply the exact version.
+      - name: Work out the version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BUMP: ${{ inputs.bump }}
+          EXACT: ${{ inputs.version }}
+          PREID: ${{ inputs.preid }}
+        run: |
+          set -euo pipefail
+
+          release=true
+          bumped=false
+
+          if [ "$EVENT" = "push" ]; then
+            # Hand-pushed tag: the tree must already hold this version.
+            version="${REF_NAME#v}"
+            in_tree=$(node -p "require('./package.json').version")
+            if [ "$version" != "$in_tree" ]; then
+              echo "::error::tag $REF_NAME names version $version but the tree is at $in_tree. Cut releases with Run workflow, or bump and commit before tagging."
+              exit 1
+            fi
+            node scripts/sync-version.mjs --check
+          elif [ "$BUMP" = "none" ] && [ -z "$EXACT" ]; then
+            release=false
+            version=$(node -p "require('./package.json').version")
+            echo "No bump requested: building every platform, releasing nothing."
+          else
+            npm version "${EXACT:-$BUMP}" --preid "$PREID" --no-git-tag-version > /dev/null
+            version=$(node -p "require('./package.json').version")
+            bumped=true
+          fi
+
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+
+          echo "version $version (release=$release, prerelease=$prerelease)"
+          {
+            echo "release=$release"
+            echo "bumped=$bumped"
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      # Early, so a doomed run does not spend three platforms of build minutes.
+      - name: The tag has to be new
+        if: steps.version.outputs.bumped == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::$TAG already exists. Pick a different bump, or delete the tag and its release first."
+            exit 1
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal macOS leg; tauri-action lists it under both darwin targets in latest.json.
+          - platform: macos-latest # universal .app + .dmg
+            args: '--target universal-apple-darwin'
+            bundle: src-tauri/target/universal-apple-darwin/release/bundle
+          - platform: ubuntu-22.04 # AppImage + .deb + .rpm
+            args: ''
+            bundle: src-tauri/target/release/bundle
+          - platform: windows-latest # NSIS .exe
+            args: ''
+            bundle: src-tauri/target/release/bundle
+
+    runs-on: ${{ matrix.platform }}
+
+    env:
+      # A step's `if:` cannot read secrets. An unset secret is "", and the bundler treats an empty
+      # APPLE_CERTIFICATE as a key.
+      SIGN_MACOS: ${{ secrets.APPLE_CERTIFICATE != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/linux-deps
+        if: matrix.platform == 'ubuntu-22.04'
+        with:
+          bundling: 'true'
+
+      - uses: ./.github/actions/setup-node
+        with:
+          install: 'false'
+
+      # The bundles bake in the version, so the tree must carry it before the build. Same edit
+      # `publish` commits, so the tag's tree is what was built.
+      - name: Apply the version bump
+        if: needs.prepare.outputs.bumped == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version > /dev/null
+          node scripts/sync-version.mjs
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: stable
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: './src-tauri -> target'
+          key: release${{ matrix.args }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `tr -d`: base64 on Linux wraps at 76 columns.
+      - name: Prepare Apple signing
+        if: startsWith(matrix.platform, 'macos') && env.SIGN_MACOS == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            value=$(printf '%s' "${!name}" | tr -d '\r\n')
+            if [ -z "$value" ]; then
+              echo "::error::$name is empty. Signing is all-or-nothing: set every Apple secret, or none."
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The updater (minisign) key, not code signing. Password is empty when the key has none.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple variables come from the step above, and only when set.
+        with:
+          args: ${{ matrix.args }}
+          # Empty tagName builds everything and releases nothing (the "none" bump).
+          tagName: ${{ needs.prepare.outputs.release == 'true' && needs.prepare.outputs.tag || '' }}
+          releaseName: ${{ needs.prepare.outputs.release == 'true' && 'Set v__VERSION__' || '' }}
+          releaseBody: 'See the assets below to download and install this version.'
+          # Draft until every check passes. A pre-release stays out of releases/latest.
+          releaseDraft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+
+      # Runs after the assets are attached, which is why the release is a draft.
+      - name: Check the bundles
+        if: matrix.platform != 'windows-latest'
+        run: scripts/check-bundle.sh '${{ matrix.bundle }}'
+
+      - name: Check the installers
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: scripts/check-bundle.ps1 '${{ matrix.bundle }}'
+
+      # !cancelled(): a rejected bundle is the one worth downloading.
+      - name: Upload bundles as artifacts (no-release runs)
+        if: ${{ !cancelled() && needs.prepare.outputs.release != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: set-${{ matrix.platform }}${{ matrix.args != '' && format('-{0}', matrix.args) || '' }}
+          path: |
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.app/**
+            src-tauri/target/**/release/bundle/**/*.AppImage
+            src-tauri/target/**/release/bundle/**/*.deb
+            src-tauri/target/**/release/bundle/**/*.rpm
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*.tar.gz
+            src-tauri/target/**/release/bundle/**/*.sig
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Every build leg read-modify-writes latest.json with no lock, so an entry can be lost. Re-run to
+  # fix.
+  updater-feed:
+    name: Check the update feed
+    needs: [prepare, build]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Every platform is in latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir .
+
+          missing=0
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            url=$(jq -r --arg p "$platform" '.platforms[$p].url // ""' latest.json)
+            signature=$(jq -r --arg p "$platform" '.platforms[$p].signature // ""' latest.json)
+            if [ -z "$url" ] || [ -z "$signature" ]; then
+              echo "::error::latest.json has no signed bundle for $platform"
+              missing=1
+            else
+              echo "$platform -> $url"
+            fi
+          done
+          exit "$missing"
+
+  # A plain version moves the updater feed. A pre-release is published but offered to nobody.
+  publish:
+    name: Publish the release
+    needs: [prepare, build, updater-feed]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      # Full history: a shallow clone cannot push.
+      - name: Checkout
+        if: needs.prepare.outputs.bumped == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-node
+        if: needs.prepare.outputs.bumped == 'true'
+        with:
+          install: 'false'
+
+      # The tag has to exist before the draft is lifted, or GitHub would create it at github.sha,
+      # one commit short of the bump.
+      - name: Commit the bump and tag
+        if: needs.prepare.outputs.bumped == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version > /dev/null
+          node scripts/sync-version.mjs
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "$TAG"
+
+          # The bump sits on the dispatched commit, which is what was built. If the branch has
+          # moved since, the push is rejected rather than tagging a tree nobody built.
+          # --atomic: branch and tag together, so a rejected push leaves neither.
+          if ! git push --atomic origin "HEAD:refs/heads/$BRANCH" "refs/tags/$TAG"; then
+            echo "::error::could not push $TAG and the bump to $BRANCH. Either $BRANCH moved during the run, or $TAG appeared. The release is still a draft; re-run the workflow to rebuild from the branch tip."
+            exit 1
+          fi
+
+      # Version-free download links. Globs, since each bundler picks its own arch suffix; zero or
+      # many matches fails.
+      - name: Stable download names
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          alias_asset() {
+            local pattern="$1" stable="$2"
+            local found=(dist/$pattern)
+
+            if [ ! -e "${found[0]}" ]; then
+              echo "::error::no release asset matches $pattern (wanted as $stable)"
+              return 1
+            fi
+            if [ "${#found[@]}" -gt 1 ]; then
+              echo "::error::$pattern matches ${#found[@]} assets, so which one $stable should be is ambiguous: ${found[*]}"
+              return 1
+            fi
+
+            cp "${found[0]}" "$stable"
+            echo "$stable <- $(basename "${found[0]}")"
+          }
+
+          # Not the .tar.gz updater bundles.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern '*universal.dmg' \
+            --pattern '*-setup.exe' \
+            --pattern '*.AppImage' \
+            --pattern '*.deb' \
+            --pattern '*.rpm'
+
+          alias_asset '*universal.dmg' Set-macOS.dmg
+          alias_asset '*-setup.exe' Set-Windows-x64-setup.exe
+          alias_asset '*.AppImage' Set-linux-x86_64.AppImage
+          alias_asset '*.deb' Set-linux-amd64.deb
+          alias_asset '*.rpm' Set-linux-x86_64.rpm
+
+          # --clobber so a re-run over an existing draft replaces the aliases.
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            Set-macOS.dmg \
+            Set-Windows-x64-setup.exe \
+            Set-linux-x86_64.AppImage \
+            Set-linux-amd64.deb \
+            Set-linux-x86_64.rpm
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          # Best-effort: the first release has nothing to compare against.
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body 2> /dev/null || true)
+          if [ -n "$notes" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          fi
+
+          if [ "$PRERELEASE" = 'true' ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease --latest=false
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease=false --latest
+          fi
+
+          echo "published $TAG (prerelease=$PRERELEASE)"

@@ -1,0 +1,26 @@
+pre-commit:
+  parallel: true
+  commands:
+    frontend-format:
+      glob: "*.{ts,svelte,css}"
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true
+    rust-format:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo fmt -- {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: true
+  commands:
+    frontend-typecheck:
+      glob: "*.{ts,svelte}"
+      run: pnpm check
+    frontend-format-check:
+      glob: "*.{ts,svelte,css}"
+      run: pnpm format:check
+    rust-lint:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo clippy --all-targets -- -D warnings

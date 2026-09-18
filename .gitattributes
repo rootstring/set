@@ -1,0 +1,3 @@
+# LF everywhere, including on Windows runners (autocrlf is on by default there): the release
+# scripts do line-anchored edits on Cargo.lock and friends.
+* text=auto eol=lf

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NSMicrophoneUsageDescription is required: macOS kills a process that opens an input device without it. See src/dictation/audio.rs. -->
+<plist version="1.0">
+  <dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Set uses the microphone for dictation. Your voice is transcribed on this Mac and never leaves it.</string>
+  </dict>
+</plist>

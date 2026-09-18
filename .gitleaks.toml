@@ -1,0 +1,21 @@
+title = "Set"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Keyboard-shortcut accelerator strings (e.g. "Mod+Shift+KeyN") in
+src/lib/state/settings.svelte.ts read as high-entropy to the generic-api-key
+rule (four hyphen-free, capitalised tokens joined by "+"), but they're
+key-combo literals, not secrets. Scoped to the one file that defines shortcut
+defaults, and to the literal shape of an accelerator, rather than a bare
+fingerprint tied to one commit: a fingerprint stops matching the moment a
+later commit touches that line, which a value allowlist doesn't.
+"""
+paths = [
+  '''src/lib/state/settings\.svelte\.ts''',
+]
+regexes = [
+  '''Mod(\+(Alt|Shift|KeyN))+''',
+]

@@ -1,0 +1,89 @@
+.control {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  flex: 0 0 auto;
+  gap: 0.35rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.control.quiet {
+  background: transparent;
+  color: var(--text-muted);
+}
+.control.primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 86%, oklch(100% 0 0)),
+    var(--accent)
+  );
+  box-shadow: var(--shadow-control);
+  color: var(--on-accent);
+}
+.control.primary.danger {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--danger) 86%, oklch(100% 0 0)),
+    var(--danger)
+  );
+  color: oklch(100% 0 0);
+}
+.control:not(.primary):hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.control:not(.primary).danger:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: oklch(100% 0 0);
+}
+.control.primary:hover {
+  filter: brightness(1.05);
+}
+.control.primary:active {
+  box-shadow: none;
+}
+
+/* The tooltip bubble (lib/shell/tooltips.ts) lives on `document.body`, outside every component. */
+.tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 400;
+
+  max-width: 22rem;
+  padding: 0.3rem 0.5rem;
+  box-sizing: border-box;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  /* A link's address has no spaces to break at. */
+  overflow-wrap: anywhere;
+
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.09s ease;
+}
+.tip.shown {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip {
+    transition: none;
+  }
+}

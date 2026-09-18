@@ -1,0 +1,58 @@
+/* Placed by `lib/shell/popover.ts`. Global: all four are the same box with a caret. */
+.popover {
+  position: fixed;
+
+  /* Over the trash and settings panels, under the toasts. */
+  z-index: 250;
+  width: min(var(--popover-width, 320px), calc(100vw - 2rem));
+  background:
+    linear-gradient(var(--surface-tint), var(--surface-tint)), var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: var(--shadow-pop);
+
+  /* Hidden for the frame it takes to measure, so it never flashes at 0,0. */
+  visibility: hidden;
+}
+
+.popover.ready {
+  visibility: visible;
+  animation: pop-in 100ms ease-out;
+}
+
+.popover .caret {
+  position: absolute;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.popover.above .caret {
+  top: auto;
+  bottom: -5px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover.ready {
+    animation: none;
+  }
+}

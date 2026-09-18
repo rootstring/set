@@ -1,0 +1,14 @@
+# Cloudflare Pages. Matching rules are merged and a header set by two is comma-joined, so each
+# Cache-Control rule covers a path no other rule does; the HTML shell stays on the Pages default.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# Fingerprinted, so a changed file is a changed URL.
+/_app/immutable/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Fonts are not fingerprinted, so long but not immutable.
+/fonts/*
+  Cache-Control: public, max-age=604800

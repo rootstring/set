@@ -1,0 +1,61 @@
+# What `cargo deny` checks in CI (see .github/workflows/security.yml). Advisories fail the build;
+# everything else is set to catch a real change, not to generate exceptions.
+
+[graph]
+# Only the platforms Set ships, so a Redox- or WASM-only crate cannot fail CI.
+targets = [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+# Sees the same tree a release build does.
+all-features = true
+
+[advisories]
+# No severity threshold: this app has a peer-to-peer listener in it.
+version = 2
+yanked = "deny"
+# Workspace deps only: Tauri's Linux webview pulls retired GTK3 bindings nobody here can change.
+unmaintained = "workspace"
+ignore = [
+    # An ignore needs a sentence saying why it cannot be reached from this app, and a link.
+]
+
+[licenses]
+version = 2
+# All compatible with shipping under AGPL-3.0.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+    "BSL-1.0",
+    "OpenSSL",
+    # `webpki-roots`, the Mozilla CA bundle; a data licence.
+    "CDLA-Permissive-2.0",
+]
+# An exception, so an AGPL dependency still has to be let in on purpose.
+exceptions = [{ allow = ["AGPL-3.0-only"], crate = "set" }]
+# "We do not know" is not a licence.
+confidence-threshold = 0.9
+
+[bans]
+# How a patched dependency ends up unpatched; usually benign in a tree this size, so a warning.
+multiple-versions = "warn"
+wildcards = "deny"
+# Crates that must never enter the tree, not a blessed list.
+deny = []
+
+[sources]
+# A git dependency has no published version, no advisory coverage, and a movable ref.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

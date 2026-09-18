@@ -1,0 +1,159 @@
+name: Checks
+
+# Also on push to main: release.yml runs no tests of its own.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Types & formatting
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-node
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Check the version is in sync
+        run: pnpm version:check
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+  native:
+    name: Rust format, lint & tests
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Before the toolchain: fails in seconds, not minutes into the Windows leg.
+      - name: Lint the lockfile
+        working-directory: .
+        run: node scripts/check-lockfile.mjs
+
+      - uses: ./.github/actions/linux-deps
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "./src-tauri -> target"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+  # Dispatch-only: adds the case-insensitive filesystems Linux lacks.
+  sync:
+    name: Sync end to end
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/linux-deps
+        if: matrix.platform == 'ubuntu-22.04'
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: sync-e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Sync tests
+        run: "cargo test --no-default-features --lib sync::"
+
+      - name: Soak
+        env:
+          SET_SYNC_FUZZ_SEEDS: "300"
+        run: cargo test --release --no-default-features --lib sync::e2e::fuzz::soak -- --ignored
+
+  desktop:
+    name: Desktop build
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux every run; all three on dispatch (macOS and Windows minutes are expensive;
+        # release.yml's "none" bump covers them).
+        platform: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["macos-latest", "ubuntu-22.04", "windows-latest"]' || '["ubuntu-22.04"]') }}
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/linux-deps
+        if: matrix.platform == 'ubuntu-22.04'
+        with:
+          bundling: "true"
+
+      - uses: ./.github/actions/setup-node
+        with:
+          install: "false"
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08
+        with:
+          toolchain: stable
+
+      # shared-key so perf.yml can restore it. Only main saves: caches are branch-scoped and evict
+      # each other.
+      - name: Rust cache
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: tauri-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Windows stops at the binary; its installers are slow to build and read back.
+      - name: Build
+        if: matrix.platform == 'windows-latest'
+        run: pnpm tauri build --no-bundle
+
+      # Bundling is what picks the app binary and copies set-mcp beside it. --no-sign: no keys on
+      # PRs.
+      - name: Build and bundle
+        if: matrix.platform != 'windows-latest'
+        run: pnpm tauri build --no-sign --bundles ${{ matrix.platform == 'macos-latest' && 'app' || 'deb' }}
+
+      - name: Check the bundle
+        if: matrix.platform != 'windows-latest'
+        run: scripts/check-bundle.sh src-tauri/target/release/bundle

@@ -1,0 +1,183 @@
+:root {
+  --font-sans:
+    "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-serif: "Roboto Serif", Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-system:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-body: var(--font-sans);
+
+  --bg: oklch(100% 0 0);
+  --bg-elevated: oklch(97.2% 0.0022 106);
+
+  --bg-hover: oklch(0% 0 0 / 0.05);
+  --bg-active: oklch(0% 0 0 / 0.09);
+  --border: oklch(87.5% 0.004 106);
+
+  --text: oklch(23% 0.005 106);
+  --text-muted: oklch(52.5% 0.006 106);
+  --text-subtle: oklch(70% 0.005 106);
+  --accent: oklch(52% 0.21 266);
+
+  --accent-soft: oklch(92% 0.04 266);
+  --accent-ink: oklch(38% 0.17 266);
+  --on-accent: oklch(100% 0 0);
+
+  --danger-base: oklch(55% 0.215 27);
+  --danger-tint: var(--danger-base);
+  --danger: color-mix(in srgb, var(--danger-base) 88%, var(--danger-tint));
+
+  --warning-base: oklch(58% 0.13 75);
+  --warning-tint: var(--warning-base);
+  --warning: color-mix(in srgb, var(--warning-base) 88%, var(--warning-tint));
+
+  --hl-comment: oklch(70% 0.01 106);
+  --hl-keyword: oklch(52% 0.2 300);
+  --hl-string: oklch(53% 0.12 158);
+  --hl-number: oklch(56% 0.12 70);
+  --hl-function: oklch(54% 0.19 266);
+  --hl-class: oklch(56% 0.16 345);
+  --hl-variable: oklch(57% 0.19 33);
+  --hl-builtin: oklch(55% 0.09 215);
+
+  --surface-tint: transparent;
+  --surface:
+    linear-gradient(var(--surface-tint), var(--surface-tint)),
+    linear-gradient(180deg, oklch(99.2% 0.001 106) 0%, oklch(96.4% 0.0035 106) 100%);
+
+  --editor-tint: transparent;
+  --editor-bg: linear-gradient(var(--editor-tint), var(--editor-tint)), var(--bg);
+  --control: linear-gradient(180deg, oklch(100% 0 0) 0%, oklch(95.8% 0.0035 106) 100%);
+  --control-hover: linear-gradient(
+    180deg,
+    oklch(98% 0.002 106) 0%,
+    oklch(93.4% 0.005 106) 100%
+  );
+  --control-border: oklch(84% 0.005 106);
+  --shadow-pop:
+    0 12px 34px oklch(20% 0.004 106 / 0.16), 0 1px 3px oklch(20% 0.004 106 / 0.1);
+  --shadow-control: 0 1px 1.5px oklch(20% 0.004 106 / 0.08);
+
+  --sidebar-width: 264px;
+
+  --sidebar-header-height: 2.9rem;
+  /* The app-drawn window bar on Linux, where the desktop draws none. */
+  --titlebar-height: 32px;
+  --radius: 6px;
+
+  --drag-handle-height: 24px;
+
+  --editor-font-size: 1rem;
+  --editor-line-height: 1.6;
+  --block-gap: 0.35rem;
+
+  --reading-width: 42rem;
+  --reading-gutter: 3.5rem;
+  --reading-pad: max(var(--reading-gutter), calc((100% - var(--reading-width)) / 2));
+  --reading-column: min(var(--reading-width), calc(100% - 2 * var(--reading-gutter)));
+
+  color-scheme: light dark;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background-color: var(--bg);
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --bg: oklch(20.8% 0.0025 106);
+    --bg-elevated: oklch(24.2% 0.003 106);
+    --bg-hover: oklch(100% 0 0 / 0.06);
+    --bg-active: oklch(100% 0 0 / 0.1);
+    --border: oklch(35% 0.005 106);
+    --text: oklch(94% 0.002 106);
+    --text-muted: oklch(70% 0.005 106);
+    --text-subtle: oklch(54% 0.005 106);
+    --accent: oklch(64% 0.17 264);
+    --accent-soft: oklch(30% 0.085 264);
+    --accent-ink: oklch(85% 0.076 264);
+    --danger-base: oklch(60% 0.215 27);
+    --warning-base: oklch(78% 0.135 82);
+
+    --hl-comment: oklch(61% 0.012 106);
+    --hl-keyword: oklch(70% 0.17 300);
+    --hl-string: oklch(72% 0.14 159);
+    --hl-number: oklch(75% 0.13 74);
+    --hl-function: oklch(72% 0.15 264);
+    --hl-class: oklch(72% 0.17 345);
+    --hl-variable: oklch(69% 0.18 33);
+    --hl-builtin: oklch(73% 0.11 214);
+
+    --surface:
+      linear-gradient(var(--surface-tint), var(--surface-tint)),
+      linear-gradient(180deg, oklch(26.5% 0.0035 106) 0%, oklch(22.8% 0.0028 106) 100%);
+    --control: linear-gradient(
+      180deg,
+      oklch(29.5% 0.004 106) 0%,
+      oklch(26% 0.0035 106) 100%
+    );
+    --control-hover: linear-gradient(
+      180deg,
+      oklch(33% 0.005 106) 0%,
+      oklch(28.5% 0.004 106) 100%
+    );
+    --control-border: oklch(40% 0.006 106);
+    --shadow-pop: 0 14px 38px oklch(0% 0 0 / 0.55), 0 1px 3px oklch(0% 0 0 / 0.4);
+    --shadow-control: 0 1px 1.5px oklch(0% 0 0 / 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: oklch(20.8% 0.0025 106);
+  --bg-elevated: oklch(24.2% 0.003 106);
+  --bg-hover: oklch(100% 0 0 / 0.06);
+  --bg-active: oklch(100% 0 0 / 0.1);
+  --border: oklch(35% 0.005 106);
+  --text: oklch(94% 0.002 106);
+  --text-muted: oklch(70% 0.005 106);
+  --text-subtle: oklch(54% 0.005 106);
+  --accent: oklch(64% 0.17 264);
+  --accent-soft: oklch(30% 0.085 264);
+  --accent-ink: oklch(85% 0.076 264);
+  --danger-base: oklch(60% 0.215 27);
+  --warning-base: oklch(78% 0.135 82);
+
+  --hl-comment: oklch(61% 0.012 106);
+  --hl-keyword: oklch(70% 0.17 300);
+  --hl-string: oklch(72% 0.14 159);
+  --hl-number: oklch(75% 0.13 74);
+  --hl-function: oklch(72% 0.15 264);
+  --hl-class: oklch(72% 0.17 345);
+  --hl-variable: oklch(69% 0.18 33);
+  --hl-builtin: oklch(73% 0.11 214);
+
+  --surface:
+    linear-gradient(var(--surface-tint), var(--surface-tint)),
+    linear-gradient(180deg, oklch(26.5% 0.0035 106) 0%, oklch(22.8% 0.0028 106) 100%);
+  --control: linear-gradient(
+    180deg,
+    oklch(29.5% 0.004 106) 0%,
+    oklch(26% 0.0035 106) 100%
+  );
+  --control-hover: linear-gradient(
+    180deg,
+    oklch(33% 0.005 106) 0%,
+    oklch(28.5% 0.004 106) 100%
+  );
+  --control-border: oklch(40% 0.006 106);
+  --shadow-pop: 0 14px 38px oklch(0% 0 0 / 0.55), 0 1px 3px oklch(0% 0 0 / 0.4);
+  --shadow-control: 0 1px 1.5px oklch(0% 0 0 / 0.35);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}

@@ -1,0 +1,3 @@
+# SPA fallback: deep links to `/<context>/pages/<slug>` only exist once the client router boots.
+# Static assets are matched first; 200 keeps the URL for the router.
+/*  /index.html  200

@@ -1,0 +1,99 @@
+[package]
+name = "set"
+version = "0.0.2-rc.2"
+description = "A dead-simple, local-first, block-based note taking app."
+authors = ["rootstring"]
+# Stated so `cargo deny check licenses` can verify the tree against it.
+license = "AGPL-3.0-only"
+repository = "https://github.com/rootstring/set"
+edition = "2021"
+# Two binaries; a bare `cargo run` means the app.
+default-run = "set"
+
+[lib]
+# `_lib` suffix avoids a lib/bin name clash on Windows:
+# https://github.com/rust-lang/cargo/issues/8519
+name = "set_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Both [[bin]] entries are load-bearing: the Tauri CLI only bundles binaries declared here (plus
+# src/bin/), and treats the one named after the package as the app. Without this section it shipped
+# `set-mcp` as Set.app.
+[[bin]]
+name = "set"
+path = "src/main.rs"
+
+# Shipped beside the app executable, where `mcp_binary()` in lib.rs looks for it.
+[[bin]]
+name = "set-mcp"
+path = "src/bin/set-mcp.rs"
+
+[features]
+# A feature so it can be turned off: whisper-rs compiles whisper.cpp from source (minutes,
+# megabytes). The Tauri commands stay registered and answer `available: false`.
+default = ["dictation"]
+dictation = ["dep:whisper-rs", "dep:cpal", "dep:ureq"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `asset://` serves a note's images; file:// is blocked from the app origin. Scope is widened at
+# runtime by `grant_notes_dir`.
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+# Asking the OS is the only honest answer to "am I registered"; a settings bool would drift.
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Edits made outside Set (Finder, another editor, iCloud). Debounce and filtering are ours.
+notify = "8"
+
+# iroh is transport only (authenticated QUIC with NAT traversal). Not iroh-docs: a replica database
+# would be a second source of truth beside the folder.
+iroh = "1"
+# Windows hazard: `wmi` declares `windows` and `windows-core` as independent ranges and Cargo may
+# pair mismatched lines. Fixed in Cargo.lock; if `cargo update` brings it back, `cargo update -p
+# wmi`. scripts/check-lockfile.mjs guards it.
+
+# `EndpointTicket`: endpoint id plus how to reach it, as one pasteable string.
+iroh-tickets = "1"
+postcard = { version = "1", features = ["alloc"] }
+blake3 = "1"
+# Three-way merge of the Markdown body; frontmatter is merged field-wise in src/sync/merge.rs.
+diffy = "0.5"
+# Bearer tokens need a CSPRNG on purpose, not by inheritance.
+rand = "0.10"
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
+# Notes-folder identity, so two unrelated folders cannot be merged by mistake.
+uuid = { version = "1", features = ["v4"] }
+# macOS and Windows ignore case, APFS ignores Unicode normalization; sync folds names (NFC,
+# lowercase) before writing.
+unicode-normalization = "0.1"
+
+cpal = { version = "0.18", optional = true }
+# Not `reqwest`: the download runs on a plain thread with no async runtime, and ureq shares the
+# rustls underneath.
+ureq = { version = "3", optional = true }
+# Digests fixed elsewhere: the Hugging Face model checksum, and page ids derived with Web Crypto
+# (`deriveId` in src/lib/utils/id.ts) that sync must reproduce exactly.
+sha2 = "0.11"
+
+# Metal on macOS only; ggml falls back to CPU without a device. CUDA/Vulkan/HIP need toolkits at
+# build time we cannot assume.
+# `raw-api` exposes `whisper_log_set`/`ggml_log_set`, used to take both libraries off stderr (see
+# `dictation::engine::hush`).
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", optional = true, default-features = false, features = [
+  "metal",
+  "raw-api",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = { version = "0.16", optional = true, default-features = false, features = [
+  "raw-api",
+] }
