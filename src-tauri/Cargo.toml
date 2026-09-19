@@ -1,6 +1,6 @@
 [package]
 name = "set"
-version = "0.0.2-rc.2"
+version = "0.0.2"
 description = "A dead-simple, local-first, block-based note taking app."
 authors = ["rootstring"]
 # Stated so `cargo deny check licenses` can verify the tree against it.

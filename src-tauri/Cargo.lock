@@ -5147,7 +5147,7 @@ dependencies = [
 
 [[package]]
 name = "set"
-version = "0.0.2-rc.2"
+version = "0.0.2"
 dependencies = [
  "blake3",
  "cpal",
