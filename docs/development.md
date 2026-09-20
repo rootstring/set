@@ -154,18 +154,6 @@ SET_UPDATE_FEED=http://localhost:8080/latest.json pnpm tauri dev
   every check passes.
 - The Linux job bundles a `.deb`, because `--no-bundle` skips the step that selects the app binary.
 
-## Web
-
-[writewithset.com](https://writewithset.com) is Cloudflare Pages building `main` with `pnpm build`,
-but only when asked: the last job of `release.yml` POSTs the project's deploy hook once a mainline
-release is published, by which time `main` holds the release commit. A pre-release (a version with
-a `-`) deploys nothing, and neither does an ordinary push.
-
-The hook URL is the `CLOUDFLARE_DEPLOY_HOOK` repository secret (Cloudflare: the Pages project →
-Settings → Builds & deployments → Deploy hooks). Automatic production deployments are switched off
-in the same place, or every push to `main` would still go live. To deploy by hand, POST the hook,
-or retry a release's "Deploy the web app" job.
-
 ## App icons
 
 The generated icons in `src-tauri/icons/` and `static/favicon.png` are committed; the source artwork
