@@ -113,10 +113,10 @@ fn write_tools() -> Value {
             "name": "create_page",
             "description": "Create a new page in the user's notes. Use this when the user asks \
     you to write something down, save a note, or remember something for later. Adds only: it \
-    cannot change or delete a page that already exists, so search_pages first when the note \
-    might belong on a page that is already there. A second page on the same subject is the only \
-    other outcome available. Give it a specific title; that is how it will be found again. \
-    Returns the new page's id and path.",
+    cannot change or delete a page that already exists, other than listing a new child at the \
+    end of its parent, so search_pages first when the note might belong on a page that is \
+    already there. A second page on the same subject is the only other outcome available. Give \
+    it a specific title; that is how it will be found again. Returns the new page's id and path.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -133,8 +133,8 @@ fn write_tools() -> Value {
                     "parent_id": {
                         "type": "string",
                         "description": "Nest the new page under this existing page, as its \
-    child. Take the id from search_pages or list_pages. Omit to put the page at the top of a \
-    context.",
+    child, listed at the end of the parent. Take the id from search_pages or list_pages. A \
+    locked parent is refused. Omit to put the page at the top of a context.",
                     },
                     "context": {
                         "type": "string",

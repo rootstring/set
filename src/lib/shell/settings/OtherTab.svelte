@@ -232,7 +232,8 @@ It runs locally over stdio and takes no arguments.`,
       </Field>
       <p class="set-hint">
         {#if mcpMode === "write"}
-          Search, read, and add pages. It can't edit or delete.
+          Search, read, and add pages. A new sub-page is linked from its parent. It can't
+          otherwise edit or delete.
         {:else}
           Search and read. It can't change anything.
         {/if}

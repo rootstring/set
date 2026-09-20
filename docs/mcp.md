@@ -2,7 +2,9 @@
 
 `set-mcp` is a local [MCP](https://modelcontextprotocol.io) server that lets AI clients (Claude
 Desktop, Claude Code, Cursor, …) search and read your notes. It's read-only by default. **Read &
-add** also lets it create pages; it can't edit, move or delete them yet.
+add** also lets it create pages. A page created under a parent is linked from the end of that
+parent, the way the app does it, and that is the only change it makes to a page that already
+exists: it can't otherwise edit, move or delete pages yet.
 
 ## Setup
 
@@ -45,7 +47,7 @@ add** also lets it create pages; it can't edit, move or delete them yet.
 | `list_contexts`  | read       | Top-level contexts and their page counts                                 |
 | `list_pages`     | read       | Page tree in sidebar order, paginated by cursor. Optional `context`      |
 | `get_page`       | read       | A page's full Markdown                                                   |
-| `create_page`    | read & add | New page: title, optional Markdown body, and a `parent_id` or `context`  |
+| `create_page`    | read & add | New page: title, optional Markdown body, and a `parent_id` or `context`. A child is linked from the end of its parent, as the app does; a locked parent is refused |
 | `create_context` | read & add | New top-level context (folder at the notes root)                         |
 
 `context` is case-insensitive. An unknown context is refused with the list of valid ones.
@@ -75,7 +77,7 @@ and can already read the notes folder, so a token wouldn't add protection:
 | ------------------------------------- | --------------------------------------------------------------------------------------------- |
 | Another local process reads the notes | No, it can read the folder directly                                                           |
 | A configured client is malicious      | No, it would have the token from its config                                                   |
-| Prompt injection in a note            | No. Read only has nothing to misuse, and Read & add can at most create a page you didn't want |
+| Prompt injection in a note            | No. Read only has nothing to misuse, and Read & add can at most create a page you didn't want, linked from the end of its parent |
 | The connected AI leaks your notes     | No, that's the access you granted                                                             |
 
 The switch isn't a security boundary: anyone who can run `set-mcp` can read the folder directly. A

@@ -53,6 +53,8 @@ struct Page {
     path: String,
 
     rel: String,
+
+    locked: bool,
 }
 
 impl Server {
@@ -188,10 +190,11 @@ list_contexts names exactly the ones you can reach, and the rest are not yours t
         if self.writable {
             format!(
                 "{shared} You may also add to these notes: create_page writes a new page and \
-create_context makes a new top-level context. Nothing here can change or delete a page that \
-already exists. Before writing something the user has told you before, search for it, since \
-adding a second page is all you can do. Search first anyway when the user asks you to remember \
-something: the right place is usually inside a page that is already there."
+create_context makes a new top-level context. A page created under a parent is listed at the \
+end of that parent; beyond that, nothing here can change or delete a page that already exists. \
+Before writing something the user has told you before, search for it, since adding a second \
+page is all you can do. Search first anyway when the user asks you to remember something: the \
+right place is usually inside a page that is already there."
             )
         } else {
             format!("{shared} This server cannot create, edit, or delete anything.")
@@ -530,6 +533,14 @@ you've been allowed. Ask the user to widen the scope in Set under Settings → A
                         format!("No page has id {id:?}. List or search for a current id.")
                     }
                 })?;
+                // A sub-page is linked from its parent's body, which a locked parent won't take.
+                if parent.locked {
+                    return Err(format!(
+                        "The page {} is locked, so nothing can be added under it. Ask the user \
+to unlock it in Set, or create the page somewhere else.",
+                        display_name(parent)
+                    ));
+                }
                 (
                     write::child_folder_of(&parent.rel).to_string(),
                     display_name(parent),
@@ -545,12 +556,26 @@ you've been allowed. Ask the user to widen the scope in Set under Settings → A
         let made = write::create_page(&self.root, &folder, title, body, parent_id)?;
         let where_it_is = format!("{breadcrumb} / {title}");
         self.record("create_page", &where_it_is, 1);
-        Ok(format!(
+
+        // The child is a file already; a parent that couldn't be written leaves it unlisted,
+        // which is worth saying, not worth a retry that would make a second one.
+        let unlinked = parent_id
+            .and_then(|id| pages.iter().find(|page| page.id == id))
+            .and_then(|parent| write::link_child(&self.root, &parent.rel, &made.id, title).err());
+
+        let mut reply = format!(
             "Created {where_it_is}  [id: {}]\nIt is in the {} context, and the user will see \
 it in Set within a moment. Read it back with get_page.",
             made.id,
             context_of(&made.rel_path),
-        ))
+        );
+        if let Some(err) = unlinked {
+            reply.push_str(&format!(
+                "\nThe page is on disk, but its parent couldn't be updated to list it ({err}). \
+Tell the user, and don't create it again."
+            ));
+        }
+        Ok(reply)
     }
 
     /// A scoped session is never told other contexts exist, not even one it named.
@@ -738,6 +763,7 @@ fn in_tree_order(entries: &[ScanEntry]) -> Vec<Page> {
             title: title.to_string(),
             path,
             rel: entry.rel_path.clone(),
+            locked: entry.locked,
         });
         for child in children
             .get(&Some(entry.id.as_str()))
@@ -1635,6 +1661,38 @@ mod tests {
 
         let (list, _) = tool(&server, "list_pages", json!({}));
         assert!(list.contains("Work / Projects / Gamma"), "{list}");
+
+        // The parent lists it, the way the app's sidebar and page find sub-pages.
+        let id = text
+            .split("[id: ")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("an id in the reply");
+        let (parent, _) = tool(&server, "get_page", json!({"id": "p"}));
+        assert!(parent.contains("Top level container."), "{parent}");
+        assert!(parent.contains(&format!("[Gamma](page:{id})")), "{parent}");
+        assert!(!text.contains("couldn't be updated"), "{text}");
+    }
+
+    #[test]
+    fn a_locked_parent_takes_no_children() {
+        let (d, server) = writable();
+        d.write(
+            "Work/Locked.md",
+            "---\nid: \"l\"\ntitle: \"Locked\"\nlocked: true\ncreatedAt: 1\nupdatedAt: 2\n---\n\nKeep.\n",
+        );
+        let (text, is_error) = tool(
+            &server,
+            "create_page",
+            json!({"title": "Nope", "parent_id": "l"}),
+        );
+        assert!(is_error, "{text}");
+        assert!(text.contains("locked"), "{text}");
+        assert!(!d.0.join("Work/Locked").exists());
+        assert_eq!(
+            std::fs::read_to_string(d.0.join("Work/Locked.md")).unwrap(),
+            "---\nid: \"l\"\ntitle: \"Locked\"\nlocked: true\ncreatedAt: 1\nupdatedAt: 2\n---\n\nKeep.\n"
+        );
     }
 
     #[test]
@@ -1840,7 +1898,11 @@ mod tests {
         assert!(write.contains("create_page"), "{write}");
 
         assert!(
-            write.contains("Nothing here can change or delete"),
+            write.contains("listed at the end of that parent"),
+            "{write}"
+        );
+        assert!(
+            write.contains("nothing here can change or delete"),
             "{write}"
         );
     }

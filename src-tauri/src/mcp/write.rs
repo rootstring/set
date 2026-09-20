@@ -35,6 +35,87 @@ pub fn create_page(
     Ok(Created { id, rel_path })
 }
 
+/// Adds `[title](page:id)` to the end of the parent's body, the block the app appends when a
+/// sub-page is made in it. The sidebar and the page both list sub-pages from these links, so a
+/// child without one is on disk but nowhere to be seen. Bumps `updatedAt` as a save would, so
+/// sync and the folder watch treat it as an edit.
+pub fn link_child(
+    root: &Path,
+    parent_rel: &str,
+    child_id: &str,
+    child_title: &str,
+) -> Result<(), String> {
+    let abs = crate::root::contain(root, &root.join(parent_rel).to_string_lossy())?;
+    let text = fs::read_to_string(&abs).map_err(|e| format!("reading {parent_rel}: {e}"))?;
+    let linked = append_link(&text, child_id, child_title, crate::clock::now_ms());
+    crate::write::write_atomically(&abs, linked.as_bytes())
+}
+
+fn append_link(text: &str, child_id: &str, child_title: &str, now: u64) -> String {
+    let text = text.replace("\r\n", "\n");
+    let link = format!("[{}](page:{child_id})", escape_link_text(child_title));
+
+    let (front, body) = split_frontmatter(&text);
+    let body = body.trim_end_matches('\n');
+    let body = if body.is_empty() {
+        link
+    } else {
+        format!("{body}\n\n{link}")
+    };
+    match front {
+        Some(front) => format!("---\n{}\n---\n\n{body}\n", touch(front, now)),
+        None => format!("{body}\n"),
+    }
+}
+
+/// The frontmatter block (without its fences) and the body, or no block and the whole text.
+fn split_frontmatter(text: &str) -> (Option<&str>, &str) {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return (None, text);
+    };
+    let Some(end) = rest.find("\n---") else {
+        return (None, text);
+    };
+    let block = &rest[..end];
+    let after = &rest[end + 4..];
+    let after = after.strip_prefix('\n').unwrap_or(after);
+    let body = after.strip_prefix('\n').unwrap_or(after);
+    (Some(block), body)
+}
+
+/// The block with `updatedAt` set to `now`, added if the block had none.
+fn touch(front: &str, now: u64) -> String {
+    let mut lines: Vec<String> = front
+        .split('\n')
+        .map(|line| {
+            let is_updated_at = line
+                .split_once(':')
+                .is_some_and(|(key, _)| key.trim() == "updatedAt");
+            if is_updated_at {
+                format!("updatedAt: {now}")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    if !lines.iter().any(|line| line.starts_with("updatedAt:")) {
+        lines.push(format!("updatedAt: {now}"));
+    }
+    lines.join("\n")
+}
+
+/// Brackets and backslashes would end or escape the link's text.
+fn escape_link_text(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    for c in title.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub fn create_context(root: &Path, name: &str) -> Result<String, String> {
     let wanted = sanitize_context_name(name).ok_or_else(|| {
         format!("{name:?} can't be a context name. Use letters or digits; the names Set-Trash and Set-page-assets belong to the layout.")
@@ -276,6 +357,68 @@ mod tests {
         let (entries, _) = crate::scan::scan_tree(&d.0.to_string_lossy());
         let entry = entries.iter().find(|e| e.id == made.id).unwrap();
         assert_eq!(entry.parent_id.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn a_child_is_linked_from_the_end_of_its_parent() {
+        let d = notes();
+        let made = create_page(&d.0, "Work/Projects", "Alpha", "", Some("p")).unwrap();
+        link_child(&d.0, "Work/Projects.md", &made.id, "Alpha").unwrap();
+
+        let parent = read(&d.0, "Work/Projects.md");
+        assert!(
+            parent.ends_with(&format!("\n\nBody.\n\n[Alpha](page:{})\n", made.id)),
+            "{parent}"
+        );
+        assert!(
+            parent.starts_with("---\nid: \"p\"\ntitle: \"Projects\"\n"),
+            "{parent}"
+        );
+        assert!(parent.contains("\nupdatedAt: "), "{parent}");
+
+        let (entries, bodies) = crate::scan::scan_tree(&d.0.to_string_lossy());
+        let child = entries.iter().find(|e| e.id == made.id).unwrap();
+        assert_eq!(child.parent_id.as_deref(), Some("p"));
+        assert!(bodies["p"].contains(&format!("](page:{})", made.id)));
+    }
+
+    #[test]
+    fn linking_touches_updated_at_and_leaves_the_rest_of_the_frontmatter_alone() {
+        let text = "---\nid: \"p\"\ntitle: \"P\"\norder: 2\nlocked: false\ncreatedAt: 1\nupdatedAt: 2\n---\n\nBody.\n";
+        let out = append_link(text, "c", "Child", 99);
+        assert_eq!(
+            out,
+            "---\nid: \"p\"\ntitle: \"P\"\norder: 2\nlocked: false\ncreatedAt: 1\nupdatedAt: 99\n---\n\nBody.\n\n[Child](page:c)\n"
+        );
+
+        let without = "---\nid: \"p\"\n---\n\nBody.\n";
+        assert_eq!(
+            append_link(without, "c", "Child", 99),
+            "---\nid: \"p\"\nupdatedAt: 99\n---\n\nBody.\n\n[Child](page:c)\n"
+        );
+    }
+
+    #[test]
+    fn an_empty_parent_gets_just_the_link_and_a_bare_file_is_still_a_file() {
+        assert_eq!(
+            append_link("---\nid: \"p\"\nupdatedAt: 2\n---\n", "c", "Child", 9),
+            "---\nid: \"p\"\nupdatedAt: 9\n---\n\n[Child](page:c)\n"
+        );
+        assert_eq!(
+            append_link("---\nid: \"p\"\nupdatedAt: 2\n---\n\n\n\n", "c", "Child", 9),
+            "---\nid: \"p\"\nupdatedAt: 9\n---\n\n[Child](page:c)\n"
+        );
+        assert_eq!(
+            append_link("no frontmatter here\r\n", "c", "Child", 9),
+            "no frontmatter here\n\n[Child](page:c)\n"
+        );
+        assert_eq!(append_link("", "c", "Child", 9), "[Child](page:c)\n");
+    }
+
+    #[test]
+    fn a_title_that_could_end_the_link_is_escaped() {
+        let out = append_link("Body.\n", "c", "A [b] \\ c", 9);
+        assert!(out.ends_with("[A \\[b\\] \\\\ c](page:c)\n"), "{out}");
     }
 
     #[test]

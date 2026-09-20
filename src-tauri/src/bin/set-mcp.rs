@@ -130,5 +130,6 @@ Speaks newline-delimited JSON-RPC on stdin/stdout; it is meant to be spawned by
 an MCP client, not run by hand.
 
 Tools: list_contexts, list_pages, search_pages, get_page, plus create_page and
-create_context when agent access is set to allow new pages. Nothing here can edit or
-delete a page that already exists.";
+create_context when agent access is set to allow new pages. A page created under a
+parent is listed at the end of that parent; nothing here can otherwise edit or delete
+a page that already exists.";
