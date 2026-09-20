@@ -11,8 +11,8 @@ Set is a simple Markdown based note-taking app that stores all your documents lo
 
 ## Features
 
-- Block editor: headings, lists, to-dos, toggles, quotes, code blocks, tables, images and links, with
-  a `/` command menu and Markdown shortcuts
+- Block editor: headings, lists, to-dos, toggles, quotes, code blocks, tables, images, equations and
+  links, with a `/` command menu and Markdown shortcuts
 - Nested pages in a sidebar tree, reordered by drag and drop
 - Contexts: separate top-level folders, each with its own page tree, that you switch between
 - Every page is a plain Markdown file in a folder you choose; changes made outside Set are picked up
@@ -29,6 +29,7 @@ Set is a simple Markdown based note-taking app that stores all your documents lo
 - [Tauri 2](https://tauri.app) (Rust)
 - [Svelte 5](https://svelte.dev) and SvelteKit, TypeScript, Vite
 - [TipTap](https://tiptap.dev) (ProseMirror) for the editor
+- [KaTeX](https://katex.org) for equations
 - [iroh](https://www.iroh.computer) for sync
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) for dictation
 
@@ -61,4 +62,4 @@ The license covers the code, not the Set name or icon. If you distribute a modif
 a different name and icon.
 
 The bundled fonts, Manrope and Roboto Serif, are under the SIL Open Font License 1.1 (see
-[`static/fonts/`](static/fonts/)).
+[`static/fonts/`](static/fonts/)), as are KaTeX's.

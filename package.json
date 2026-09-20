@@ -49,6 +49,7 @@
     "@tiptap/starter-kit": "^3.30.5",
     "@tiptap/suggestion": "^3.30.5",
     "highlight.js": "^11",
+    "katex": "^0.18.7",
     "lowlight": "^3",
     "markdown-it-mark": "^4.0.0",
     "prosemirror-markdown": "^1.13.5",

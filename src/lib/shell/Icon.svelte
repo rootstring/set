@@ -91,6 +91,9 @@
     {:else}
       <path d="M5.25 7.25V4.75a2.75 2.75 0 0 1 5.5 0v2.5" />
     {/if}
+  {:else if name === "math"}
+    <path d="M2.25 9.25H3.5l1.75 3.5L8.25 3.25H13.75" />
+    <path d="m9.5 8 3.5 4.5M13 8l-3.5 4.5" />
   {:else if name === "mic"}
     <rect x="6" y="1.75" width="4" height="7" rx="2" />
     <path d="M3.75 7.25a4.25 4.25 0 0 0 8.5 0" />

@@ -621,6 +621,57 @@
   color: var(--text-subtle);
 }
 
+/* Equations: KaTeX draws them, the dialog edits them; the source is what the file keeps. */
+.ProseMirror .math-inline {
+  border-radius: 4px;
+  padding-inline: 0.1em;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.ProseMirror .math-inline:hover,
+.ProseMirror .math-inline.ProseMirror-selectednode {
+  background-color: var(--accent-soft);
+}
+.ProseMirror .math-inline:empty::before {
+  content: "equation";
+  color: var(--text-subtle);
+  font-style: italic;
+}
+/* The source, until KaTeX has drawn it. */
+.ProseMirror .math-pending {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--text-muted);
+}
+.ProseMirror .math-block {
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.ProseMirror .math-block:hover,
+.ProseMirror .math-block.ProseMirror-selectednode {
+  background-color: var(--accent-soft);
+}
+.ProseMirror .math-preview {
+  padding: 0.5rem 0.25rem;
+  text-align: center;
+  overflow-x: auto;
+}
+.ProseMirror .math-block.empty .math-preview::before {
+  content: "Empty equation";
+  color: var(--text-subtle);
+  font-style: italic;
+}
+.ProseMirror .katex-display {
+  margin: 0;
+}
+/* A wide equation scrolls rather than pushing the page out. */
+.ProseMirror .katex-display > .katex {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.15em;
+}
+
 .ProseMirror mark {
   color: inherit;
   background-color: color-mix(in oklch, var(--warning) 26%, transparent);

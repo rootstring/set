@@ -60,7 +60,7 @@
 
   /** Before the answer, so the fields are not removed while one holds focus. */
   function handBack(): void {
-    if (camefrom?.isConnected) camefrom.focus();
+    if (camefrom?.isConnected) camefrom.focus({ preventScroll: true });
   }
 
   function submit(): void {

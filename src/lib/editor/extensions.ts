@@ -19,6 +19,7 @@ import { detailsExtensions } from "./Details";
 import { outsideCells, tableExtensions, TableTools } from "./Table";
 import { rawMarkdownExtensions } from "./RawMarkdown";
 import { footnoteExtensions } from "./Footnote";
+import { mathExtensions } from "./Math";
 import { WikiLink } from "./WikiLink";
 import { Callout } from "./Callout";
 import { InlineImage } from "./InlineImage";
@@ -83,6 +84,7 @@ export function createExtensions(options: EditorSchemaOptions = {}): Extensions 
     ...tableExtensions,
     ...rawMarkdownExtensions,
     ...footnoteExtensions,
+    ...mathExtensions,
     WikiLink.configure({
       onOpenPage: options.onOpenPage,
       resolvePageByTitle: options.resolvePageByTitle,

@@ -55,6 +55,20 @@ function greet(name: string): string {
 }
 ```
 
+## Equations
+
+Dollar signs around LaTeX make an equation in a sentence, like $e^{i\pi} + 1 = 0$ or $\sqrt{a^2 + b^2}$. Two dollar signs on a line of their own, or Equation from the `/` menu, make a block:
+
+$$
+x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+$$
+
+$$
+\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+$$
+
+Click an equation to change it: the source is edited in a popup that draws it as you type, and says what is wrong when it can't. A price like $5 stays a price.
+
 ## Tables
 
 | Block | Markdown |
@@ -63,6 +77,7 @@ function greet(name: string): string {
 | To-do | `- [ ] Task` |
 | Toggle | `<details>` |
 | Callout | `> [!NOTE]` |
+| Equation | `$$` |
 
 ## Dates
 

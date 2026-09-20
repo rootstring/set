@@ -19,6 +19,7 @@ export type IconName =
   | "link"
   | "lock"
   | "lock-open"
+  | "math"
   | "mic"
   | "ordered"
   | "page"

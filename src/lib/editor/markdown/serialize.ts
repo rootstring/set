@@ -1,5 +1,6 @@
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 import type { SetMarkdownState } from "./state";
+import { mathSpanAt } from "./math";
 
 /**
  * With no recorded syntax the output is what tiptap-markdown wrote; recorded `markup` (see
@@ -317,7 +318,7 @@ function bareFits(
   return joined?.[0]?.index === 0 && joined[0].lastIndex === text.length;
 }
 
-const SPECIAL = /[[\]=&]/;
+const SPECIAL = /[[\]=&$]/;
 const isSpace = (ch: string | undefined) => ch === undefined || /\s/.test(ch);
 
 /** tiptap-markdown's own HTML escape — kept, so `<` is still written `&lt;`. */
@@ -330,7 +331,10 @@ function decodesAsEntity(entity: string): boolean {
   return decoder.value !== entity;
 }
 
-/** Brackets are escaped only where they could make a link, reference, footnote or wikilink. */
+/**
+ * Brackets are escaped only where they could make a link, reference, footnote or wikilink, and
+ * dollars only where they would close into an equation.
+ */
 const serializeText: NodeSerializer = (state, node, parent, index) => {
   const text = node.text ?? "";
   if (state.inAutolink) {
@@ -349,10 +353,26 @@ const serializeText: NodeSerializer = (state, node, parent, index) => {
       afterBreak,
       inLink,
       following(node, parent, index),
+      startOfLine && text.trimEnd() === "$$" && dollarLineAfter(parent, index),
     ),
     false,
   );
 };
+
+/** Whether a later wrapped line of the paragraph is `$$` on its own, closing an equation block. */
+function dollarLineAfter(parent: PMNode, index: number): boolean {
+  let lineStart = false;
+  for (let i = index + 1; i < parent.childCount; i++) {
+    const child = parent.child(i);
+    if (child.type.name === "softBreak") {
+      lineStart = true;
+      continue;
+    }
+    if (lineStart && child.isText && (child.text ?? "").trimEnd() === "$$") return true;
+    lineStart = false;
+  }
+  return false;
+}
 
 /** The first character written after this node, as far as a bracket cares. */
 function following(node: PMNode, parent: PMNode, index: number): string {
@@ -393,6 +413,7 @@ export function escapeText(
   afterBreak: boolean,
   inLink: boolean,
   next: string,
+  closesBlock = false,
 ): string {
   // `<` and `>` become entities only as each run is written.
   if (!SPECIAL.test(text))
@@ -430,6 +451,14 @@ export function escapeText(
       if (end - i >= 2 && !isSpace(text[end]) && closesHighlight(text, end))
         escaped.add(i);
       i = end - 1;
+    } else if (ch === "$") {
+      // A matched pair would make an equation, and a `$$` line with another below it a block;
+      // the opener is what is escaped, so the scan goes on past it.
+      const opensBlock = i === 0 && startOfLine && text.trimEnd() === "$$" && closesBlock;
+      if (opensBlock || mathSpanAt(text, i)) {
+        escaped.add(i);
+        if (text[i + 1] === "$") escaped.add(i + 1);
+      }
     } else if (ch === "&") {
       const entity =
         /^&(?:#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/.exec(

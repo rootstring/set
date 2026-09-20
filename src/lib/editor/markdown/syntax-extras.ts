@@ -1,3 +1,4 @@
+import { mathSpanAt } from "./math";
 import {
   escapeAttr,
   type BlockRule,
@@ -8,17 +9,33 @@ import {
   type Token,
 } from "./types";
 
-/** Footnotes, wikilinks and GitHub alerts; parsed by `Footnote.ts`, `WikiLink.ts`, `Callout.ts`. */
+/**
+ * Footnotes, wikilinks, GitHub alerts and math; parsed by `Footnote.ts`, `WikiLink.ts`,
+ * `Callout.ts` and `Math.ts`.
+ */
 export function registerExtras(md: MarkdownIt): void {
   md.block.ruler.before("reference", "set_footnote_def", footnoteDefinition, {
     alt: ["paragraph", "reference"],
   });
+  // Like a fence, it can cut a paragraph short.
+  md.block.ruler.before("fence", "set_math_block", mathBlock, {
+    alt: ["paragraph", "reference", "blockquote", "list"],
+  });
   md.inline.ruler.before("link", "set_wikilink", wikiLink);
   md.inline.ruler.before("link", "set_footnote_ref", footnoteReference);
+  md.inline.ruler.before("link", "set_math_inline", mathInline);
   md.core.ruler.after("block", "set_callouts", callouts);
 
   const escape = md.utils.escapeHtml;
   const rules = md.renderer.rules;
+  rules.math_block = (tokens, idx) => {
+    const form = tokens[idx].meta?.single ? ' data-md="single"' : "";
+    return `<div data-math-block=""${form}>${escape(tokens[idx].content)}</div>`;
+  };
+  rules.math_inline = (tokens, idx) => {
+    const display = tokens[idx].meta?.display ? ' data-display=""' : "";
+    return `<span data-math="${escapeAttr(tokens[idx].content)}"${display}></span>`;
+  };
   rules.footnote_def = (tokens, idx) => {
     const { label, space } = tokens[idx].meta as { label: string; space: string };
     return (
@@ -113,6 +130,56 @@ const footnoteReference: InlineRule = (state, silent) => {
     token.meta = { label: match[1] };
   }
   state.pos += match[0].length;
+  return true;
+};
+
+/** `$x$` and `$$x$$` in running text; `math.ts` says what counts. */
+const mathInline: InlineRule = (state, silent) => {
+  const span = mathSpanAt(state.src, state.pos, state.posMax);
+  if (!span) return false;
+  const open = span.display ? 2 : 1;
+  if (!silent) {
+    const token = state.push("math_inline", "", 0);
+    token.content = state.src.slice(state.pos + open, span.end - open);
+    token.markup = span.display ? "$$" : "$";
+    token.meta = { display: span.display };
+  }
+  state.pos = span.end;
+  return true;
+};
+
+/** `$$` on a line of its own up to the next, or `$$x$$` on one line. */
+const mathBlock: BlockRule = (state, startLine, endLine, silent) => {
+  if (state.sCount[startLine] - state.blkIndent >= 4) return false;
+  const first = lineText(state, startLine).trimEnd();
+  if (!first.startsWith("$$")) return false;
+
+  if (first !== "$$") {
+    const span = mathSpanAt(first, 0);
+    if (!span?.display || span.end !== first.length) return false;
+    if (silent) return true;
+    const token = state.push("math_block", "", 0);
+    token.block = true;
+    token.map = [startLine, startLine + 1];
+    token.content = first.slice(2, -2);
+    token.meta = { single: true };
+    state.line = startLine + 1;
+    return true;
+  }
+
+  let line = startLine + 1;
+  for (; line < endLine; line++) {
+    if (!state.isEmpty(line) && state.sCount[line] < state.blkIndent) return false;
+    if (lineText(state, line).trimEnd() === "$$") break;
+  }
+  // Left open, it is a paragraph that starts with two dollars.
+  if (line >= endLine) return false;
+  if (silent) return true;
+  const token = state.push("math_block", "", 0);
+  token.block = true;
+  token.map = [startLine, line + 1];
+  token.content = state.getLines(startLine + 1, line, state.sCount[startLine], false);
+  state.line = line + 1;
   return true;
 };
 

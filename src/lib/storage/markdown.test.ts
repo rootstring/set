@@ -96,7 +96,14 @@ const FROM_ELSEWHERE: [string, string][] = [
   ["alert with a blank line", "> [!WARNING]\n>\n> Careful."],
   ["obsidian callout", "> [!tip]- Title here\n> Body"],
   ["highlight", "==marked=="],
-  ["dollars stay prose", "costs $5 and $10, and $E = mc^2$ is just text"],
+  ["dollars in prose", "costs $5 and $10, and $E = mc^2$ is an equation"],
+  ["inline math", "Euler: $e^{i\\pi} + 1 = 0$, and $$\\sum_{i} x_i$$ on display"],
+  ["dollars inside math", "$\\$5 + \\$6$"],
+  ["math block", "$$\n\\int_0^1 x\\,dx = \\frac{1}{2}\n$$"],
+  ["one-line math block", "$$E = mc^2$$"],
+  ["math block in a quote", "> $$\n> x\n> $$"],
+  ["math block in a list", "- item\n\n  $$\n  x\n  $$"],
+  ["unclosed dollars", "$$\nnot math"],
   ["mermaid", "```mermaid\ngraph TD; A-->B\n```"],
   ["heading id", "## Title {#custom-id}"],
   ["empty alert", "> [!NOTE]"],
@@ -122,6 +129,8 @@ const TYPED: string[] = [
   "array[0] and [x]",
   "<kbd>",
   "costs $5",
+  "$a$b$c$",
+  "$$",
   "a == b",
   "x_y_z",
 ];
@@ -162,6 +171,67 @@ function find(node: Json, type: string): Json | undefined {
 const paragraph = (...content: Json[]): Json => ({
   type: "doc",
   content: [{ type: "paragraph", content }],
+});
+
+describe("math", () => {
+  it("a price is prose, a formula an equation", () => {
+    const doc = markdownToDoc("costs $5 and $10, and $E = mc^2$") as Json;
+    const inline = doc.content![0].content!;
+    expect(inline.map((node) => node.type)).toEqual(["text", "mathInline"]);
+    expect(inline[0].text).toBe("costs $5 and $10, and ");
+    expect(inline[1].attrs).toEqual({ source: "E = mc^2", display: false });
+  });
+
+  it("$$ on its own lines is a block, holding its source as written", () => {
+    const doc = markdownToDoc("$$\n  a \\\\\n  b\n$$") as Json;
+    expect(doc.content![0].type).toBe("mathBlock");
+    expect(doc.content![0].attrs!.source).toBe("  a \\\\\n  b");
+  });
+
+  it("$$ cuts a paragraph short, as a fence does", () => {
+    const doc = markdownToDoc("text\n$$\nx\n$$") as Json;
+    expect(doc.content!.slice(0, 2).map((node) => node.type)).toEqual([
+      "paragraph",
+      "mathBlock",
+    ]);
+  });
+
+  it("a $$ line that never closes stays a paragraph", () => {
+    const doc = markdownToDoc("$$\nstill text") as Json;
+    expect(doc.content!.map((node) => node.type)).toEqual(["paragraph"]);
+    expect(find(doc, "mathInline")).toBeUndefined();
+  });
+
+  it("an equation typed in the editor is written the way Set writes it", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "so " },
+            { type: "mathInline", attrs: { source: "a^2 + b^2 = c^2", display: false } },
+          ],
+        },
+        { type: "mathBlock", attrs: { source: "\\sum_{n=1}^\\infty" } },
+        { type: "mathBlock", attrs: { source: "" } },
+      ],
+    };
+    expect(docToMarkdown(doc as never).trim()).toBe(
+      "so $a^2 + b^2 = c^2$\n\n$$\n\\sum_{n=1}^\\infty\n$$\n\n$$\n$$",
+    );
+  });
+
+  it("a dollar inside an equation's source is escaped for the file", () => {
+    const doc = paragraph({
+      type: "mathInline",
+      attrs: { source: "a$b", display: false },
+    });
+    expect(docToMarkdown(doc as never).trim()).toBe("$a\\$b$");
+    expect(find(markdownToDoc("$a\\$b$") as Json, "mathInline")!.attrs!.source).toBe(
+      "a\\$b",
+    );
+  });
 });
 
 describe("edits keep the file valid", () => {

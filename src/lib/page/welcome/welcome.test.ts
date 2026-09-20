@@ -57,6 +57,15 @@ describe.each(PLATFORMS)("welcome pages (%s)", (_name, opts) => {
 });
 
 describe("welcome pages", () => {
+  it("show equations on the showcase, inline and as blocks", () => {
+    const showcase = welcomeChildren(PLATFORMS[0][1]).find(
+      (d) => d.title === "Markdown showcase",
+    )!;
+    const seen = types(markdownToDoc(showcase.body) as Json);
+    expect(seen.has("mathInline")).toBe(true);
+    expect(seen.has("mathBlock")).toBe(true);
+  });
+
   it("link each sub-page from the parent", () => {
     const [root, ...children] = drafts(PLATFORMS[0][1]);
     const doc = markdownToDoc(root.body) as Json;

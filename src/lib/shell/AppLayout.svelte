@@ -10,6 +10,7 @@
   import ConfirmPopover from "./ConfirmPopover.svelte";
   import PagePicker from "./PagePicker.svelte";
   import LinkDialog from "./LinkDialog.svelte";
+  import MathDialog from "./MathDialog.svelte";
   import TrashView from "./TrashView.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import PageMenu from "./PageMenu.svelte";
@@ -268,6 +269,7 @@
 <ConfirmPopover />
 <PagePicker {pages} {activeContext} />
 <LinkDialog />
+<MathDialog />
 <Toaster />
 
 {#if frameless}

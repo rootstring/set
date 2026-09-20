@@ -4,6 +4,7 @@ import type { PageSummary } from "$lib/types";
 import type { IconName } from "$lib/shell/icons";
 import { dictation } from "$lib/state/dictation.svelte";
 import { insertDateMention } from "./DateMention";
+import { editMath } from "./Math";
 import { caretRect, insertLink } from "./links";
 import { askLink } from "$lib/state/link-dialog.svelte";
 import { askForPage, insertWikiLink } from "./wiki-link-tools";
@@ -170,6 +171,27 @@ const SLASH_ITEMS: SlashItem[] = [
     keywords: ["snippet", "pre", "monospace"],
     run: (editor, range) =>
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
+  },
+  {
+    title: "Equation",
+    subtitle: "A block of LaTeX math",
+    icon: "math",
+    keywords: ["math", "latex", "katex", "tex", "formula", "equation", "display"],
+    run: (editor, range) => {
+      editor.chain().focus().deleteRange(range).insertMathBlock().run();
+      editMath(editor, editor.state.selection.from);
+    },
+  },
+  {
+    title: "Inline equation",
+    subtitle: "LaTeX math inside a sentence",
+    icon: "math",
+    keywords: ["math", "latex", "katex", "tex", "formula", "equation", "inline"],
+    inline: true,
+    run: (editor, range) => {
+      editor.chain().focus().deleteRange(range).insertMathInline().run();
+      editMath(editor, editor.state.selection.from);
+    },
   },
   {
     title: "Callout",

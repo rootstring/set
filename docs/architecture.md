@@ -134,8 +134,9 @@ Notes/
 - **The editor doesn't know about pages.** `Editor.svelte` takes a document and emits changes.
   Blocks and slash commands are registered in `extensions.ts`.
 - **Editor prompts go through state.** Block menus render outside Svelte, so "which page?"
-  (`state/page-picker.svelte.ts`) and "what link?" (`state/link-dialog.svelte.ts`) are promises
-  answered by panels mounted once in `AppLayout`. `workspace` applies the result.
+  (`state/page-picker.svelte.ts`), "what link?" (`state/link-dialog.svelte.ts`) and "what
+  equation?" (`state/math-dialog.svelte.ts`) are promises answered by panels mounted once in
+  `AppLayout`. `workspace` applies the result.
 
 ## Further
 
