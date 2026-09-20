@@ -9,6 +9,8 @@ name: Release
 # leaves the branch and tags untouched, plus a draft release that a re-run reuses.
 # TAURI_SIGNING_PRIVATE_KEY is required. Apple secrets are optional; without them macOS bundles are
 # unsigned.
+# The web app is deployed last, by a Cloudflare Pages deploy hook (CLOUDFLARE_DEPLOY_HOOK), and
+# only for a mainline release: a pre-release deploys nothing.
 
 on:
   workflow_dispatch:
@@ -400,3 +402,24 @@ jobs:
           fi
 
           echo "published $TAG (prerelease=$PRERELEASE)"
+
+  web:
+    name: Deploy the web app
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.release == 'true' && needs.prepare.outputs.prerelease != 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      # A Cloudflare Pages deploy hook: one POST builds the project's branch, which by now holds
+      # the release commit. The URL is the credential, so it lives in a secret.
+      - name: Ask Cloudflare Pages to build
+        env:
+          HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOOK" ]; then
+            echo "::error::CLOUDFLARE_DEPLOY_HOOK is not set; $TAG was released but the web app was not deployed."
+            exit 1
+          fi
+          curl --fail --silent --show-error --request POST "$HOOK" > /dev/null
+          echo "deploy requested for $TAG"
