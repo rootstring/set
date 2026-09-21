@@ -116,7 +116,7 @@ test("inside a chroot the trail starts at the root", async ({ page }) => {
   await open(page, "Roadmap");
   await page.getByTestId("page-menu").click();
   await page.getByTestId("page-menu-chroot").click();
-  await expect(page.locator(".crumb-here")).toHaveText("Roadmap");
+  await expect(page.getByTestId("breadcrumb-scope")).toBeVisible();
   await expect(crumbs(page)).toHaveText(["Roadmap"]);
 
   await open(page, "Goals");

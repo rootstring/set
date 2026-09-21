@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { getActiveEditor } from "./active-editor";
 import type { NestedOptions } from "@tiptap/extension-drag-handle";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
@@ -53,6 +54,12 @@ export interface DragHandleController {
   render: () => HTMLElement;
   onNodeChange: (change: NodeChange) => void;
   reset: () => void;
+}
+
+export function dismissDragHandle(): void {
+  const editor = getActiveEditor();
+  if (!editor || editor.isDestroyed) return;
+  editor.view.dispatch(editor.state.tr.setMeta("hideDragHandle", true));
 }
 
 export function createDragHandle(options: DragHandleOptions = {}): DragHandleController {

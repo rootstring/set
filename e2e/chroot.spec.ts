@@ -19,6 +19,12 @@ async function seedPages(page: Page): Promise<void> {
 
 const rows = (page: Page) => page.locator(".page-row .page-title");
 
+async function rootedAt(page: Page, title: string): Promise<void> {
+  await expect(page.getByTestId("breadcrumb-scope")).toBeVisible();
+  await expect(page.locator(".breadcrumbs .crumb").first()).toHaveText(title);
+  await expect(page.getByTestId("chroot-exit")).toBeVisible();
+}
+
 const switcherTitles = (page: Page) =>
   page.getByTestId("title-result").locator(".result-title");
 
@@ -43,8 +49,7 @@ test("roots the tree at the page, dropping its own row and everything outside", 
   await chrootHere(page);
 
   await expect(rows(page)).toHaveText(["Roadmap", "Standups"]);
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
-  await expect(page.getByTestId("chroot-exit")).toBeVisible();
+  await rootedAt(page, "Work");
 
   await expect(page.getByTestId("context-switcher")).toHaveText("Set");
 });
@@ -93,7 +98,8 @@ test("opening a page outside the root keeps the root and highlights nothing", as
   await page.keyboard.press("Enter");
   await expect(page.locator(".title")).toHaveValue("Personal");
 
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
+  await expect(page.getByTestId("breadcrumb-scope")).toHaveCount(0);
+  await expect(page.getByTestId("chroot-exit")).toHaveAttribute("title", /inside “Work”/);
   await expect(rows(page)).toHaveText(["Roadmap", "Standups"]);
 
   await expect(page.locator(".page-row.active")).toHaveCount(0);
@@ -106,7 +112,7 @@ test("the root survives a reload", async ({ page }) => {
   await page.reload();
   await expect(page.locator(".ProseMirror")).toBeVisible();
 
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
+  await rootedAt(page, "Work");
   await expect(rows(page)).toHaveText(["Roadmap", "Standups"]);
 });
 
@@ -118,7 +124,7 @@ test("one key roots the tree and un-roots it, from wherever you are", async ({
 
   await page.locator(".ProseMirror").click();
   await page.keyboard.press("ControlOrMeta+Shift+Period");
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
+  await rootedAt(page, "Work");
   await expect(rows(page)).toHaveText(["Roadmap", "Standups"]);
 
   await expect(page.locator(".ProseMirror")).toHaveText("");
@@ -131,7 +137,7 @@ test("one key roots the tree and un-roots it, from wherever you are", async ({
   await expect(rows(page)).toHaveText(["Work", "Roadmap", "Standups", "Personal"]);
 
   await page.keyboard.press("ControlOrMeta+Shift+Period");
-  await expect(page.locator(".crumb-here")).toHaveText("Roadmap");
+  await rootedAt(page, "Roadmap");
   await expect(rows(page)).toHaveText(["Q3 goals"]);
 });
 
@@ -165,10 +171,10 @@ test("the chroot key is rebindable", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   await page.keyboard.press("ControlOrMeta+Shift+KeyY");
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
+  await rootedAt(page, "Work");
 
   await page.keyboard.press("ControlOrMeta+Shift+Period");
-  await expect(page.locator(".crumb-here")).toHaveText("Work");
+  await rootedAt(page, "Work");
 });
 
 test("the quick switcher puts the root's pages above the rest of your notes", async ({

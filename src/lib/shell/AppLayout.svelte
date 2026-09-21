@@ -181,6 +181,8 @@
           offset={sidebarCollapsed && !windowNav}
           locked={activeLocked}
           onUnlock={() => onToggleLock()}
+          {chrootId}
+          {onChroot}
         />
       {/key}
     {/if}

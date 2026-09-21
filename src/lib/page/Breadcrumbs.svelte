@@ -16,6 +16,8 @@
     /** The open page is read-only, which the trail marks and offers to undo. */
     locked?: boolean;
     onUnlock?: () => void;
+    chrootId?: string | null;
+    onChroot?: (id: string | null) => void;
   }
 
   let {
@@ -25,9 +27,16 @@
     offset = false,
     locked = false,
     onUnlock = () => {},
+    chrootId = null,
+    onChroot = () => {},
   }: Props = $props();
 
   const lockHint = $derived(shortcutHint(settings.lockShortcut));
+  const unchrootHint = $derived(shortcutHint(settings.chrootShortcut));
+
+  const scopedId = $derived(
+    chrootId && (trail[0]?.id === chrootId || current.id === chrootId) ? chrootId : null,
+  );
 
   /**
    * Remounted per try so the animation restarts; none on the mount that comes with opening the
@@ -52,8 +61,26 @@
   const titleOf = (page: PageSummary) => page.title.trim() || "Untitled";
 </script>
 
+{#snippet scopeMark(page: PageSummary)}
+  <button
+    type="button"
+    class="scope"
+    title="Only pages inside “{titleOf(
+      page,
+    )}” are in the sidebar. Show them all{unchrootHint}"
+    aria-label="Show all pages in this context"
+    onclick={() => onChroot(null)}
+    data-testid="breadcrumb-scope"
+  >
+    <Icon name="chroot" />
+  </button>
+{/snippet}
+
 {#snippet crumb(page: PageSummary)}
   <li class="item">
+    {#if page.id === scopedId}
+      {@render scopeMark(page)}
+    {/if}
     <button
       type="button"
       class="crumb"
@@ -87,6 +114,9 @@
     {/if}
     <!-- Where you are rather than somewhere to go, so not a button. -->
     <li class="item">
+      {#if current.id === scopedId}
+        {@render scopeMark(current)}
+      {/if}
       <span class="crumb here" aria-current="page" title={titleOf(current)}
         >{titleOf(current)}</span
       >
@@ -203,6 +233,33 @@
 
   .fold {
     flex: 0 0 auto;
+  }
+
+  .scope {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-inline-end: 0.05rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+
+    font-size: 0.75rem;
+    color: var(--accent);
+    cursor: pointer;
+
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease;
+  }
+  .scope:hover,
+  .scope:focus-visible {
+    background-color: var(--accent-soft);
+    color: var(--accent-ink);
   }
 
   .lock {

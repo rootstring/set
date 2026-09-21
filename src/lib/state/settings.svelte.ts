@@ -154,6 +154,7 @@ interface SettingsData {
   trashPageShortcut: Shortcut;
   openTrashShortcut: Shortcut;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   contextOrder: string[];
   notesFolder: string | null;
   dictationLanguage: DictationLanguage;
@@ -283,6 +284,15 @@ function defaultNewChildPageShortcut(): Shortcut {
   return isTauri() ? "Mod+Shift+KeyN" : "Mod+Alt+Shift+KeyN";
 }
 
+export const SIDEBAR_WIDTH_DEFAULT = 264;
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 420;
+
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
+}
+
 const DEFAULTS: SettingsData = {
   theme: "system",
   accent: "blue",
@@ -315,6 +325,7 @@ const DEFAULTS: SettingsData = {
   trashPageShortcut: "Mod+Shift+Backspace",
   openTrashShortcut: "Mod+Shift+KeyY",
   sidebarCollapsed: false,
+  sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
   contextOrder: [],
   notesFolder: null,
   dictationLanguage: "auto",
@@ -380,6 +391,8 @@ const ACCEPT: Accept = {
   trashPageShortcut: asString<Shortcut>,
   openTrashShortcut: asString<Shortcut>,
   sidebarCollapsed: asBool,
+  sidebarWidth: (v) =>
+    typeof v === "number" && Number.isFinite(v) ? clampSidebarWidth(v) : undefined,
   contextOrder: (v) =>
     Array.isArray(v) ? v.filter((n): n is string => typeof n === "string") : undefined,
   notesFolder: orNull(asString<string>),
@@ -613,6 +626,7 @@ class Settings {
   trashPageShortcut = $state<Shortcut>(DEFAULTS.trashPageShortcut);
   openTrashShortcut = $state<Shortcut>(DEFAULTS.openTrashShortcut);
   sidebarCollapsed = $state<boolean>(DEFAULTS.sidebarCollapsed);
+  sidebarWidth = $state<number>(DEFAULTS.sidebarWidth);
   contextOrder = $state<string[]>([...DEFAULTS.contextOrder]);
   notesFolder = $state<string | null>(DEFAULTS.notesFolder);
   dictationLanguage = $state<DictationLanguage>(DEFAULTS.dictationLanguage);
@@ -787,6 +801,7 @@ class Settings {
     setVar(root, "--editor-font-size", fontSizeVar(this.fontSize));
     setVar(root, "--reading-width", READING_WIDTHS[this.readingWidth]);
     setVar(root, "--font-body", BODY_FONTS[this.bodyFont]);
+    setVar(root, "--sidebar-width", `${this.sidebarWidth}px`);
 
     const density = DENSITIES[this.density];
     setVar(root, "--editor-line-height", density.lineHeight);
@@ -864,6 +879,11 @@ class Settings {
 
   setSidebarCollapsed(collapsed: boolean): void {
     this.sidebarCollapsed = collapsed;
+    this.commit();
+  }
+
+  setSidebarWidth(width: number): void {
+    this.sidebarWidth = clampSidebarWidth(width);
     this.commit();
   }
 

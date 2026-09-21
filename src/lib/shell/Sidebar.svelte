@@ -14,12 +14,17 @@
     settings,
     formatShortcut,
     shortcutHint,
+    clampSidebarWidth,
     SETTINGS_SHORTCUT,
+    SIDEBAR_WIDTH_MIN,
+    SIDEBAR_WIDTH_MAX,
+    SIDEBAR_WIDTH_DEFAULT,
   } from "$lib/state/settings.svelte";
   import { updates } from "$lib/state/updates.svelte";
   import { perf } from "$lib/utils/perf";
   import { loadExpanded, saveExpanded } from "$lib/state/sidebar-expanded";
   import { PAGE_LOCKED } from "$lib/page/lock";
+  import { dismissDragHandle } from "$lib/editor/drag-handle";
 
   /** What the toast said, for after it has been answered or turned off. */
   const updateWaiting = $derived(
@@ -341,9 +346,69 @@
     }
     onMove(moving, plan.newParent, plan.orderedIds);
   }
+
+  const RESIZE_STEP = 16;
+
+  let asideEl = $state<HTMLElement>();
+  let resizing = $state(false);
+  let dragWidth = $state<number | null>(null);
+  const sidebarWidth = $derived(dragWidth ?? settings.sidebarWidth);
+
+  function previewWidth(width: number): void {
+    dragWidth = clampSidebarWidth(width);
+    document.documentElement.style.setProperty("--sidebar-width", `${dragWidth}px`);
+  }
+
+  function setWidth(width: number): void {
+    dragWidth = null;
+    settings.setSidebarWidth(width);
+    dismissDragHandle();
+  }
+
+  function onResizeStart(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    dismissDragHandle();
+
+    const startX = e.clientX;
+    const startWidth = asideEl?.offsetWidth ?? settings.sidebarWidth;
+    const body = document.body;
+    const priorSelect = body.style.userSelect;
+    const priorCursor = body.style.cursor;
+    body.style.userSelect = "none";
+    body.style.cursor = "col-resize";
+
+    const move = (ev: PointerEvent) => previewWidth(startWidth + ev.clientX - startX);
+
+    const end = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      body.style.userSelect = priorSelect;
+      body.style.cursor = priorCursor;
+      resizing = false;
+      setWidth(startWidth + ev.clientX - startX);
+    };
+
+    resizing = true;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  function onResizeKeydown(e: KeyboardEvent): void {
+    const step = e.shiftKey ? RESIZE_STEP * 2 : RESIZE_STEP;
+    if (e.key === "ArrowLeft") setWidth(sidebarWidth - step);
+    else if (e.key === "ArrowRight") setWidth(sidebarWidth + step);
+    else if (e.key === "Home") setWidth(SIDEBAR_WIDTH_MIN);
+    else if (e.key === "End") setWidth(SIDEBAR_WIDTH_MAX);
+    else return;
+    e.preventDefault();
+  }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" bind:this={asideEl}>
   <div class="traffic-lights" data-tauri-drag-region></div>
   <div class="header">
     <ContextSwitcher
@@ -353,30 +418,21 @@
       onCreate={onCreateContext}
       onManage={onManageContexts}
       switchedAt={contextSwitchedAt}
-      compact={!!chrootPage}
     />
-    {#if chrootPage}
-      <div class="crumbs" title="Showing only pages inside “{label(chrootPage)}”">
+    <div class="header-actions">
+      {#if chrootPage}
         <button
-          class="crumb-root"
-          title="Back to the top of “{activeContext}”{unchrootHint}"
+          class="control quiet icon-btn chroot-exit"
+          title="Showing only pages inside “{label(
+            chrootPage,
+          )}”. Back to the top of “{activeContext}”{unchrootHint}"
           aria-label="Back to the top of this context"
           onclick={() => onChroot(null)}
           data-testid="chroot-exit"
         >
           /
         </button>
-        <span class="crumb-sep" aria-hidden="true">›</span>
-        <button
-          class="crumb-here"
-          title="Open “{label(chrootPage)}”"
-          onclick={() => onSelect(chrootPage.id)}
-        >
-          {label(chrootPage)}
-        </button>
-      </div>
-    {/if}
-    <div class="header-actions">
+      {/if}
       <button
         class="control quiet icon-btn search-btn"
         title="Search ({formatShortcut('Mod+K')})"
@@ -538,10 +594,26 @@
       {/if}
     </button>
   </div>
+  <div
+    class="resizer"
+    class:resizing
+    role="slider"
+    aria-label="Sidebar width"
+    aria-valuenow={sidebarWidth}
+    aria-valuemin={SIDEBAR_WIDTH_MIN}
+    aria-valuemax={SIDEBAR_WIDTH_MAX}
+    tabindex="0"
+    title="Drag to resize — double-click to reset"
+    data-testid="sidebar-resizer"
+    onpointerdown={onResizeStart}
+    ondblclick={() => setWidth(SIDEBAR_WIDTH_DEFAULT)}
+    onkeydown={onResizeKeydown}
+  ></div>
 </aside>
 
 <style>
   .sidebar {
+    position: relative;
     width: var(--sidebar-width);
     flex: 0 0 var(--sidebar-width);
     height: 100%;
@@ -551,6 +623,38 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 2;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background-color 0.12s ease;
+  }
+
+  .resizer:hover::after,
+  .resizer:focus-visible::after,
+  .resizer.resizing::after {
+    background: var(--accent);
+  }
+
+  .resizer:focus-visible {
+    outline: none;
   }
 
   .traffic-lights {
@@ -578,52 +682,6 @@
     padding: 0 0.75rem;
   }
 
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    min-width: 0;
-    flex: 1 1 auto;
-    font-weight: 600;
-    font-size: 0.9375rem;
-  }
-
-  .crumb-root,
-  .crumb-here {
-    padding: 0;
-    border: none;
-    background: none;
-    font: inherit;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-
-  .crumb-root {
-    flex: 0 0 auto;
-    padding: 0 0.2rem;
-    border-radius: calc(var(--radius) - 3px);
-  }
-  .crumb-root:hover {
-    background: var(--accent-soft);
-    color: var(--accent-ink);
-  }
-
-  .crumb-sep {
-    flex: 0 0 auto;
-    color: var(--text-subtle);
-  }
-
-  .crumb-here {
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    color: var(--text);
-  }
-  .crumb-here:hover {
-    color: var(--accent);
-  }
-
   .header-actions {
     display: flex;
     align-items: center;
@@ -631,6 +689,8 @@
 
     margin-left: auto;
     flex: 0 0 auto;
+
+    padding-left: max(0px, var(--sidebar-width) - var(--sidebar-width-default));
   }
 
   .new-btn,
@@ -642,6 +702,10 @@
 
   .new-btn {
     font-size: 0.95rem;
+  }
+  .chroot-exit {
+    font-size: 0.9375rem;
+    font-weight: 600;
   }
   .search-btn {
     font-size: 0.85rem;
