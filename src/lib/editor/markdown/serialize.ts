@@ -1,6 +1,6 @@
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 import type { SetMarkdownState } from "./state";
-import { mathSpanAt } from "./math";
+import { mathSpanAt } from "@rootstring/set-markdown";
 
 /**
  * With no recorded syntax the output is what tiptap-markdown wrote; recorded `markup` (see

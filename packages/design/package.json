@@ -1,0 +1,21 @@
+{
+  "name": "@rootstring/set-design",
+  "version": "0.0.2",
+  "description": "Set's design tokens, fonts, and the CSS that draws a note.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rootstring/set.git",
+    "directory": "packages/design"
+  },
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./fonts.css": "./fonts.css",
+    "./content.css": "./content.css",
+    "./fonts/*": "./fonts/*"
+  },
+  "files": [
+    "*.css",
+    "fonts"
+  ]
+}

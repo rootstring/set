@@ -10,7 +10,7 @@ import {
 } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { askMath } from "$lib/state/math-dialog.svelte";
-import { delimit } from "./markdown/math";
+import { delimit } from "@rootstring/set-markdown";
 import { cancelMath, renderMath } from "./math-render";
 import { writeLines } from "./RawMarkdown";
 

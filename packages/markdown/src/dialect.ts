@@ -1,6 +1,7 @@
+/// <reference path="./markdown-it-mark.d.ts" />
+import markPlugin from "markdown-it-mark";
 import { mathSpanAt } from "./math";
 import {
-  escapeAttr,
   type BlockRule,
   type InlineRule,
   type MarkdownIt,
@@ -9,11 +10,24 @@ import {
   type Token,
 } from "./types";
 
+const configured = new WeakSet<MarkdownIt>();
+
 /**
- * Footnotes, wikilinks, GitHub alerts and math; parsed by `Footnote.ts`, `WikiLink.ts`,
- * `Callout.ts` and `Math.ts`.
+ * What Set reads beyond CommonMark: `==highlights==`, strict linkify, footnotes, wikilinks, GitHub
+ * alerts and math. Tokens only; each renderer decides the HTML. The editor's are in the app's
+ * `syntax.ts`, the published page's in `render.ts`. Idempotent.
+ *
+ * Tokens it adds: `math_block`, `math_inline` (`meta.display`), `footnote_def` (`meta.label`,
+ * `meta.space`, raw `content`), `footnote_ref` (`meta.label`), `wikilink` (`meta.target`,
+ * `meta.alias`) and `callout_open`/`callout_close` (attrs `data-callout`, `data-fold`,
+ * `data-title`, `data-gap`).
  */
-export function registerExtras(md: MarkdownIt): void {
+export function setDialect(md: MarkdownIt): void {
+  if (configured.has(md)) return;
+  configured.add(md);
+
+  md.use(markPlugin as unknown as (md: MarkdownIt) => void);
+  configureLinkify(md);
   md.block.ruler.before("reference", "set_footnote_def", footnoteDefinition, {
     alt: ["paragraph", "reference"],
   });
@@ -26,39 +40,30 @@ export function registerExtras(md: MarkdownIt): void {
   md.inline.ruler.before("link", "set_math_inline", mathInline);
   md.core.ruler.after("block", "set_callouts", callouts);
 
-  const escape = md.utils.escapeHtml;
   const rules = md.renderer.rules;
-  rules.math_block = (tokens, idx) => {
-    const form = tokens[idx].meta?.single ? ' data-md="single"' : "";
-    return `<div data-math-block=""${form}>${escape(tokens[idx].content)}</div>`;
-  };
-  rules.math_inline = (tokens, idx) => {
-    const display = tokens[idx].meta?.display ? ' data-display=""' : "";
-    return `<span data-math="${escapeAttr(tokens[idx].content)}"${display}></span>`;
-  };
-  rules.footnote_def = (tokens, idx) => {
-    const { label, space } = tokens[idx].meta as { label: string; space: string };
-    return (
-      `<div data-footnote="${escapeAttr(label)}" data-space="${escapeAttr(space)}">` +
-      `${escape(tokens[idx].content)}</div>`
-    );
-  };
-  rules.footnote_ref = (tokens, idx) => {
-    const { label } = tokens[idx].meta as { label: string };
-    return `<sup data-footnote-ref="${escapeAttr(label)}"></sup>`;
-  };
-  rules.wikilink = (tokens, idx) => {
-    const { target, alias } = tokens[idx].meta as {
-      target: string;
-      alias: string | null;
-    };
-    const aliasAttr = alias === null ? "" : ` data-alias="${escapeAttr(alias)}"`;
-    return `<span data-wikilink="${escapeAttr(target)}"${aliasAttr}></span>`;
-  };
   rules.callout_open = (tokens, idx, options, _env, self) =>
     self.renderToken(tokens, idx, options);
   rules.callout_close = (tokens, idx, options, _env, self) =>
     self.renderToken(tokens, idx, options);
+}
+
+/** Only URLs that say they are; a fuzzy match turns every `README.md` into a link. */
+function configureLinkify(md: MarkdownIt): void {
+  md.set({ linkify: true });
+  md.linkify.set({ fuzzyLink: false });
+  md.linkify.add("www.", {
+    validate(text: string, pos: number, self: { re: Record<string, string | RegExp> }) {
+      self.re.set_www ??= new RegExp(
+        `^${self.re.src_host_port_strict as string}${self.re.src_path as string}`,
+        "i",
+      );
+      const match = (self.re.set_www as RegExp).exec(text.slice(pos));
+      return match ? match[0].length : 0;
+    },
+    normalize(match: { url: string }) {
+      match.url = `http://${match.url}`;
+    },
+  });
 }
 
 function lineText(state: StateBlock, line: number): string {

@@ -8,6 +8,7 @@ import {
   type BlockMenuItem,
 } from "./block-menu";
 import { askForPage } from "./wiki-link-tools";
+import { WIKI_LINK_ICON as ICON_SVG } from "@rootstring/set-markdown";
 
 export interface WikiLinkOptions {
   onOpenPage?: (id: string) => void;
@@ -32,13 +33,6 @@ const OPEN_SVG =
   'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.75 8.25"/>' +
   '<path d="M12 9.5v2.75c0 .69-.56 1.25-1.25 1.25h-7c-.69 0-1.25-.56-1.25-1.25v-7c0-.69.56-1.25 1.25-1.25H6.5"/></svg>';
-
-const ICON_SVG =
-  '<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" ' +
-  'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M9 1.83H4.75c-.69 0-1.25.56-1.25 1.25v9.84c0 .69.56 1.25 1.25 1.25h6.5' +
-  'c.69 0 1.25-.56 1.25-1.25V5.5Z"/><path d="M9 1.83V5.5h3.5"/>' +
-  '<path d="M5.85 9.55h3.6M8.1 8.1l1.45 1.45-1.45 1.45"/></svg>';
 
 /**
  * `[[Page]]` and `[[Page|shown as]]`. Resolved when drawn and again when clicked, so a page made

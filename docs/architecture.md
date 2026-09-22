@@ -7,8 +7,9 @@
 - **Editor:** TipTap (ProseMirror)
 - **Storage:** Markdown files on desktop (`~/Documents/Set` by default), IndexedDB on the web. Both
   use the same file format.
-- **Styling:** scoped Svelte CSS and CSS-variable tokens (`src/styles/tokens.css`), light and dark
-- **Fonts:** Manrope and Roboto Serif, self-hosted
+- **Styling:** scoped Svelte CSS and CSS-variable tokens (`packages/design/tokens.css`), light and
+  dark
+- **Fonts:** Manrope and Roboto Serif, self-hosted (`packages/design/fonts/`)
 - **Sync:** [iroh](https://www.iroh.computer/), see [sync.md](sync.md)
 - **Dictation:** [whisper.cpp](https://github.com/ggml-org/whisper.cpp) via `whisper-rs`, behind the
   optional `dictation` cargo feature
@@ -26,7 +27,7 @@ One SvelteKit SPA with two backends behind the same `PageStore` interface:
 set/
 ├── src/
 │   ├── app.css              # global styles entry
-│   ├── styles/              # design tokens + shared CSS
+│   ├── styles/              # app CSS: controls, popovers, the editor's editing-only rules
 │   ├── routes/              # SvelteKit routes (thin: wire state to components)
 │   │   ├── +layout.svelte   # app shell (+layout.ts loads the workspace)
 │   │   ├── +page.ts         # `/`, redirects to the last open page or its context
@@ -46,7 +47,10 @@ set/
 │       ├── storage/         # PageStore + backends, Markdown/frontmatter serialization
 │       ├── types/           # shared domain types
 │       └── utils/           # generic helpers
-├── static/                  # favicon + fonts
+├── packages/                # shared with anything that publishes a note (see below)
+│   ├── design/              # tokens, fonts, content.css (how a note looks)
+│   └── markdown/            # Set's Markdown dialect + renderHtml for publishing
+├── static/                  # favicon
 ├── e2e/                     # Playwright suites, run against the built web app
 ├── scripts/                 # release, bundle-check and dev helpers
 ├── docs/
@@ -131,6 +135,13 @@ Notes/
 - **Set ignores its own writes.** `watch.rs` coalesces events and skips files matching the length
   and mtime of Set's last write. If the open page changes outside Set while it has unsaved edits, the
   user chooses what to keep.
+- **The dialect is shared, the HTML isn't.** `packages/markdown`'s `setDialect` tokenizes Set's
+  Markdown for both the editor and `renderHtml`. Syntax changes go there, with a test in each. The
+  editor's renderer rules (the HTML its schema parses, and `data-md` for round-trips) stay in
+  `editor/markdown/syntax.ts`.
+- **A note looks the same everywhere.** How a note's blocks look goes in `packages/design/content.css`,
+  under `:is(.ProseMirror, .set-content)`, and `renderHtml` emits the DOM the node views draw.
+  Selection, drag and menu styles stay in `src/styles/editor.css`.
 - **The editor doesn't know about pages.** `Editor.svelte` takes a document and emits changes.
   Blocks and slash commands are registered in `extensions.ts`.
 - **Editor prompts go through state.** Block menus render outside Svelte, so "which page?"
@@ -143,3 +154,15 @@ Notes/
 - [search.md](search.md): indexing and ranking
 - [sync.md](sync.md): device sync
 - [mcp.md](mcp.md): the MCP server
+
+## Packages
+
+`packages/design` and `packages/markdown` are consumed by the app through the pnpm workspace and
+by other sites (the blog) as git dependencies pinned to a release tag:
+
+```json
+"@rootstring/set-markdown": "github:rootstring/set#v0.0.3&path:packages/markdown"
+```
+
+They ship source (TypeScript and CSS) with no build step, so a consumer's bundler compiles them
+(Vite: `ssr.noExternal`). Keep them free of `$lib`, Svelte and DOM dependencies.

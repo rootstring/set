@@ -104,7 +104,7 @@ title, up to three names, with `+N` opening the full list (`src/lib/page/Backlin
 
 `wiki_link_titles` (`index.rs`) and `wikiLinkTitles` (`src/lib/search/wiki-links.ts`) share one list
 of test cases (`same_titles_as_the_typescript_scanner` / `matches the Rust scanner`). Both follow the
-editor's rule (`editor/markdown/syntax-extras.ts`): drop the alias after `|` and the section after
+editor's rule (`packages/markdown/src/dialect.ts`): drop the alias after `|` and the section after
 `#`, trim, and skip fenced code blocks and backtick spans.
 
 Known gap: indented (four-space) code blocks aren't skipped.
