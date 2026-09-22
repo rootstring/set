@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
-  import type { Context, PageSummary } from "$lib/types";
+  import type { Context, PageId, PageSummary } from "$lib/types";
   import { subtreeIds } from "$lib/page/tree";
   import type { ContentMatch, Segment } from "$lib/storage/store";
   import {
@@ -21,7 +21,11 @@
 
   interface Props {
     pages: PageSummary[];
-    searchContent: (query: string, limit: number) => Promise<ContentMatch[]>;
+    searchContent: (
+      query: string,
+      limit: number,
+      only?: readonly PageId[],
+    ) => Promise<ContentMatch[]>;
     chrootId: string | null;
     activeContext: string;
     contexts: Context[];
@@ -99,12 +103,14 @@
       return;
     }
 
-    const inScope = new Set(scopedPages.map((p) => p.id));
+    // Narrowed before the limit, or pages already listed by title, or in another context, would
+    // take up the slots.
+    const candidates = scopedPages.map((p) => p.id).filter((id) => !shown.has(id));
     let live = true;
     const timer = setTimeout(async () => {
-      const hits = await searchContent(q, CONTENT_LIMIT);
+      const hits = await searchContent(q, CONTENT_LIMIT, candidates);
       if (!live || query.trim() !== q) return;
-      contentMatches = hits.filter((hit) => inScope.has(hit.id) && !shown.has(hit.id));
+      contentMatches = hits;
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       live = false;

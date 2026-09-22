@@ -269,8 +269,16 @@ export class IndexedDbPageStore implements PageStore {
     }
   }
 
-  async searchContent(query: string, limit: number): Promise<ContentMatch[]> {
-    return searchBodies(await this.indexedBodies(), query, limit);
+  async searchContent(
+    query: string,
+    limit: number,
+    only?: readonly PageId[],
+  ): Promise<ContentMatch[]> {
+    const bodies = await this.bodyMap();
+    const docs = only
+      ? [...new Set(only)].flatMap((id) => bodies.get(id) ?? [])
+      : bodies.values();
+    return searchBodies(docs, query, limit);
   }
 
   async backlinks(title: string): Promise<PageId[]> {
@@ -279,11 +287,15 @@ export class IndexedDbPageStore implements PageStore {
 
   /** Built on the first question asked, not at startup; maintained by `put` and `forget`. */
   private async indexedBodies(): Promise<Iterable<IndexedBody>> {
+    return (await this.bodyMap()).values();
+  }
+
+  private async bodyMap(): Promise<Map<PageId, IndexedBody>> {
     if (!this.bodies) {
       const records = await this.records();
       this.bodies = new Map(records.map((r) => [r.id, indexed(r)]));
     }
-    return this.bodies.values();
+    return this.bodies;
   }
 
   async get(id: PageId): Promise<Page | null> {

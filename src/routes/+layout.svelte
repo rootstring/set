@@ -453,7 +453,7 @@
     quickSwitcherOpen={workspace.quickSwitcherOpen}
     onOpenQuickSwitcher={() => workspace.openQuickSwitcher()}
     onCloseQuickSwitcher={() => workspace.closeQuickSwitcher()}
-    searchContent={(query, limit) => workspace.searchContent(query, limit)}
+    searchContent={(query, limit, only) => workspace.searchContent(query, limit, only)}
     {settingsOpen}
     {settingsTab}
     onOpenSettings={openSettings}

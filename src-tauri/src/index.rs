@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 
 use serde::Serialize;
 use tauri::State;
@@ -10,18 +10,19 @@ const SNIPPET_LEAD: usize = 32;
 
 pub const MIN_QUERY_CHARS: usize = 2;
 
+/// A read lock per search: searches run side by side, and a save waits only for the ones under way.
 #[derive(Default)]
-pub struct SearchIndex(Mutex<HashMap<String, String>>);
+pub struct SearchIndex(RwLock<HashMap<String, String>>);
 
 impl SearchIndex {
     pub fn replace_all(&self, docs: HashMap<String, String>) {
-        if let Ok(mut map) = self.0.lock() {
+        if let Ok(mut map) = self.0.write() {
             *map = docs;
         }
     }
 
     pub fn upsert(&self, id: String, body: String) {
-        if let Ok(mut map) = self.0.lock() {
+        if let Ok(mut map) = self.0.write() {
             map.insert(id, body);
         }
     }
@@ -44,18 +45,42 @@ pub struct ContentHit {
     pub total: usize,
 }
 
-#[tauri::command]
-pub fn search_notes(index: State<'_, SearchIndex>, query: String, limit: usize) -> Vec<ContentHit> {
-    let Ok(map) = index.0.lock() else {
+/// `only` narrows the pages searched before `limit` is applied, so hits outside the switcher's
+/// scope, or on trashed pages, can't crowd out the ones it shows. `async` keeps a long scan off the
+/// main thread.
+#[tauri::command(async)]
+pub fn search_notes(
+    index: State<'_, SearchIndex>,
+    query: String,
+    limit: usize,
+    only: Option<HashSet<String>>,
+) -> Vec<ContentHit> {
+    let Ok(map) = index.0.read() else {
         return Vec::new();
     };
-    run_search(&map, &query, limit)
+    search_within(&map, &query, limit, only.as_ref())
+}
+
+pub fn search_within(
+    map: &HashMap<String, String>,
+    query: &str,
+    limit: usize,
+    only: Option<&HashSet<String>>,
+) -> Vec<ContentHit> {
+    match only {
+        Some(ids) => run_search(
+            ids.iter().filter_map(|id| map.get_key_value(id)),
+            query,
+            limit,
+        ),
+        None => run_search(map, query, limit),
+    }
 }
 
 /// Not filtered against trashed or deleted pages; the frontend owns the live page list.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn page_backlinks(index: State<'_, SearchIndex>, title: String) -> Vec<String> {
-    let Ok(map) = index.0.lock() else {
+    let Ok(map) = index.0.read() else {
         return Vec::new();
     };
     run_backlinks(&map, &title)
@@ -183,7 +208,11 @@ fn link_title(inner: &str) -> String {
         .to_owned()
 }
 
-pub fn run_search(map: &HashMap<String, String>, query: &str, limit: usize) -> Vec<ContentHit> {
+pub fn run_search<'a>(
+    docs: impl IntoIterator<Item = (&'a String, &'a String)>,
+    query: &str,
+    limit: usize,
+) -> Vec<ContentHit> {
     let phrase = query.trim().to_lowercase();
     if phrase.chars().count() < MIN_QUERY_CHARS {
         return Vec::new();
@@ -193,8 +222,8 @@ pub fn run_search(map: &HashMap<String, String>, query: &str, limit: usize) -> V
         return Vec::new();
     }
 
-    let mut hits: Vec<ContentHit> = map
-        .iter()
+    let mut hits: Vec<ContentHit> = docs
+        .into_iter()
         .filter_map(|(id, body)| score_page(id, body, &phrase, &terms))
         .collect();
 
@@ -697,18 +726,38 @@ mod tests {
         let idx = SearchIndex::default();
         idx.replace_all(index(&[("a", "before")]));
         idx.upsert("a".into(), "after".into());
-        let map = idx.0.lock().unwrap();
-        assert!(run_search(&map, "before", 50).is_empty());
-        assert_eq!(run_search(&map, "after", 50).len(), 1);
+        let map = idx.0.read().unwrap();
+        assert!(run_search(&*map, "before", 50).is_empty());
+        assert_eq!(run_search(&*map, "after", 50).len(), 1);
+    }
+
+    #[test]
+    fn narrowing_happens_before_the_limit() {
+        let mut pages: Vec<(String, String)> = (0..30)
+            .map(|i| (format!("elsewhere{i:02}"), "alpha alpha alpha".to_owned()))
+            .collect();
+        pages.push(("here".into(), "one alpha, far down".into()));
+        let map: HashMap<String, String> = pages.into_iter().collect();
+
+        assert!(search_within(&map, "alpha", 20, None)
+            .iter()
+            .all(|hit| hit.id != "here"));
+
+        let only: HashSet<String> = ["here".to_owned(), "gone".to_owned()].into();
+        let hits = search_within(&map, "alpha", 20, Some(&only));
+        assert_eq!(
+            hits.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
+            ["here"]
+        );
     }
 
     #[test]
     fn a_rescan_drops_pages_that_are_gone() {
         let idx = SearchIndex::default();
         idx.replace_all(index(&[("a", "alpha"), ("b", "alpha")]));
-        assert_eq!(run_search(&idx.0.lock().unwrap(), "alpha", 50).len(), 2);
+        assert_eq!(run_search(&*idx.0.read().unwrap(), "alpha", 50).len(), 2);
         idx.replace_all(index(&[("a", "alpha")]));
-        assert_eq!(run_search(&idx.0.lock().unwrap(), "alpha", 50).len(), 1);
+        assert_eq!(run_search(&*idx.0.read().unwrap(), "alpha", 50).len(), 1);
     }
 
     #[test]
@@ -817,5 +866,91 @@ mod tests {
             two_term_ms < 2000,
             "two-term search over long notes regressed: {two_term_ms} ms (budget 2000 ms)"
         );
+    }
+
+    /// What the ⌘K switcher asks for (20 hits) over the two corpora above; the median of several
+    /// runs, so one slow run doesn't decide it.
+    #[test]
+    #[ignore = "perf budget; run in release via the Performance workflow"]
+    fn search_budget_switcher() {
+        const LIMIT: usize = 20;
+        const RUNS: usize = 11;
+
+        fn median_ms(
+            map: &HashMap<String, String>,
+            query: &str,
+            only: Option<&HashSet<String>>,
+            hits: usize,
+        ) -> f64 {
+            let mut times: Vec<f64> = (0..RUNS)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    let found = search_within(map, query, LIMIT, only);
+                    let ms = start.elapsed().as_secs_f64() * 1000.0;
+                    assert_eq!(found.len(), hits, "{query}");
+                    ms
+                })
+                .collect();
+            times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            times[RUNS / 2]
+        }
+
+        let paragraph = "Longer-form notes run to real paragraphs rather than a line or two, with \
+            the sort of detail you write down precisely because you will not remember it: what was \
+            decided, who owns it, and the reasoning that made it the obvious choice at the time. ";
+        let mut short: HashMap<String, String> = (0..5000)
+            .map(|i| {
+                let body = format!(
+                    "# Page {i}\n\n{}\n\nA needle in page {i}.\n",
+                    "Some ordinary paragraph text about the work at hand. ".repeat(30)
+                );
+                (format!("id{i}"), body)
+            })
+            .collect();
+        let mut long: HashMap<String, String> = (0..2000)
+            .map(|i| {
+                let mut body = format!("# Research note {i}\n\n");
+                for section in 0..40 {
+                    body.push_str(&format!("## Section {section}\n\n{paragraph}\n\n"));
+                }
+                body.push_str(&format!("The albatross observation for note {i}.\n"));
+                (format!("id{i}"), body)
+            })
+            .collect();
+        short.insert("rare".into(), "the quetzal roosts here\n".into());
+        long.insert("rare".into(), "a lone quetzal roosts here\n".into());
+
+        // Budgets are about 3x a laptop's median, for CI runners.
+        let cases = [
+            ("5000 pages / 8 MB", &short, "quetzal", 1, 30.0),
+            ("5000 pages / 8 MB", &short, "needle", LIMIT, 70.0),
+            ("5000 pages / 8 MB", &short, "needle in page", LIMIT, 160.0),
+            ("2000 pages / 20 MB", &long, "quetzal", 1, 70.0),
+            ("2000 pages / 20 MB", &long, "albatross", LIMIT, 160.0),
+            (
+                "2000 pages / 20 MB",
+                &long,
+                "albatross observation",
+                LIMIT,
+                380.0,
+            ),
+        ];
+        for (corpus, map, query, hits, budget) in cases {
+            let ms = median_ms(map, query, None, hits);
+            eprintln!("PERF search_notes (switcher, {corpus}, {query:?}): {ms:.1} ms");
+            assert!(
+                ms < budget,
+                "{corpus}, {query:?}: {ms:.1} ms (budget {budget} ms)"
+            );
+        }
+
+        // One context of five: the switcher passes only its pages.
+        let context: HashSet<String> = (0..400).map(|i| format!("id{i}")).collect();
+        let ms = median_ms(&long, "albatross observation", Some(&context), LIMIT);
+        eprintln!(
+            "PERF search_notes (switcher, 400 of 2000 pages / 20 MB, \"albatross observation\"): \
+             {ms:.1} ms"
+        );
+        assert!(ms < 80.0, "scoped search: {ms:.1} ms (budget 80 ms)");
     }
 }

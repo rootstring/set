@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { Context, PageSummary, TrashEntry, TrashedPage } from "$lib/types";
+  import type { Context, PageId, PageSummary, TrashEntry, TrashedPage } from "$lib/types";
   import type { ContentMatch } from "$lib/storage/store";
   import Titlebar from "./Titlebar.svelte";
   import ResizeGrips from "./ResizeGrips.svelte";
@@ -70,7 +70,11 @@
     quickSwitcherOpen: boolean;
     onOpenQuickSwitcher: () => void;
     onCloseQuickSwitcher: () => void;
-    searchContent: (query: string, limit: number) => Promise<ContentMatch[]>;
+    searchContent: (
+      query: string,
+      limit: number,
+      only?: readonly PageId[],
+    ) => Promise<ContentMatch[]>;
     settingsOpen: boolean;
     onOpenSettings: (tab?: SettingsTab) => void;
     settingsTab?: SettingsTab;

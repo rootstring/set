@@ -460,9 +460,17 @@ export class FsPageStore implements PageStore {
     });
   }
 
-  async searchContent(query: string, limit: number): Promise<ContentMatch[]> {
+  async searchContent(
+    query: string,
+    limit: number,
+    only?: readonly PageId[],
+  ): Promise<ContentMatch[]> {
     try {
-      return await invoke<ContentMatch[]>("search_notes", { query, limit });
+      return await invoke<ContentMatch[]>("search_notes", {
+        query,
+        limit,
+        only: only ?? null,
+      });
     } catch {
       return [];
     }

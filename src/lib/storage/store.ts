@@ -51,7 +51,12 @@ export interface PageStore {
   renameContext(from: string, to: string): Promise<string>;
   deleteContext(name: string): Promise<void>;
   moveToContext(id: PageId, context: string): Promise<void>;
-  searchContent(query: string, limit: number): Promise<ContentMatch[]>;
+  /** `only` narrows the pages searched before `limit` applies; ids with no body are skipped. */
+  searchContent(
+    query: string,
+    limit: number,
+    only?: readonly PageId[],
+  ): Promise<ContentMatch[]>;
   /** Does not know what has been trashed; the caller filters against the live list. */
   backlinks(title: string): Promise<PageId[]>;
   /** A read is what a later save is checked against; `track: false` reads without that. */

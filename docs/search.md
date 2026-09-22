@@ -32,8 +32,12 @@ The Rust and TypeScript frontmatter strips are kept in step by
 
 - `write_page` re-indexes only after the write succeeds, so the index never holds text that isn't on
   disk.
-- Deleted pages aren't evicted. `Workspace.searchContent` filters hits against the live page list,
-  which covers trash, deletion and stale entries. A restored page is searchable immediately.
+- Deleted pages aren't evicted. `Workspace.searchContent` passes the live page ids as `only`, which
+  covers trash, deletion and stale entries. A restored page is searchable immediately.
+- `only` is applied before the limit, so pages outside the scope can't take up the 20 slots. The
+  switcher narrows it further to the active context, minus pages already listed by title.
+- Searches take a read lock and run off the main thread (`#[tauri::command(async)]`), so a long
+  scan doesn't freeze the window. A save waits only for searches already running.
 - Opening the switcher flushes pending autosave (`Workspace.openQuickSwitcher`), so unsaved edits
   are searchable. `loadBacklinks` flushes too.
 
@@ -109,17 +113,26 @@ Known gap: indented (four-space) code blocks aren't skipped.
 
 - Search runs as you type and matches substrings (`proj` and `ject` both find `Projects`). A linear
   scan handles that directly; an inverted index would need n-grams or a radix tree.
-- The scan is fast enough. Measured by `search_budget_5000_pages` and `search_budget_long_notes`
-  (release build, `Performance` workflow):
+- The scan is fast enough. `search_budget_switcher` measures it the way the switcher asks (20
+  hits, median of 11 runs, release build); `search_budget_5000_pages` and `search_budget_long_notes`
+  cover the same corpora with every hit returned. All three run in the `Performance` workflow.
+  Measured on a MacBook Pro (13-inch, M1, 2020: 4 performance + 4 efficiency cores, 16 GB, macOS
+  14.2.1, Rust 1.95.0):
 
-  | Corpus              | Query                    | Time    |
-  | ------------------- | ------------------------ | ------- |
-  | 5,000 pages / 8 MB  | 1 page matches           | ~14 ms  |
-  | 5,000 pages / 8 MB  | every page matches       | ~33 ms  |
-  | 2,000 pages / 20 MB | 1 page matches           | ~37 ms  |
-  | 2,000 pages / 20 MB | common term, every page  | ~82 ms  |
-  | 2,000 pages / 20 MB | two terms + phrase check | ~204 ms |
+  | Corpus                     | Query                    | Median  |
+  | -------------------------- | ------------------------ | ------- |
+  | 5,000 pages / 8 MB         | 1 page matches           | ~9 ms   |
+  | 5,000 pages / 8 MB         | every page matches       | ~21 ms  |
+  | 5,000 pages / 8 MB         | two terms + phrase check | ~51 ms  |
+  | 2,000 pages / 20 MB        | 1 page matches           | ~23 ms  |
+  | 2,000 pages / 20 MB        | common term, every page  | ~53 ms  |
+  | 2,000 pages / 20 MB        | two terms + phrase check | ~125 ms |
+  | 400 of those (one context) | two terms + phrase check | ~25 ms  |
 
+- The time goes to scanning, not ranking or snippets: a two-term query makes about five passes over
+  each matching page (term checks, best line per term, phrase). Building snippets only for the
+  returned hits was tried and made no measurable difference. If the scan needs to get faster, start
+  with `find_ci`, which compares one byte at a time.
 - Web cost scales with total bytes, not page count. If that changes, revisit.
 - With nothing derived, there's no on-disk cache to fall out of sync with the files.
 

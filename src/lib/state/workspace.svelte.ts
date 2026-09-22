@@ -1237,10 +1237,19 @@ class Workspace {
     this.quickSwitcherOpen = true;
   }
 
-  async searchContent(query: string, limit: number): Promise<ContentMatch[]> {
+  /**
+   * Searches live pages only (within `only`, when given), so trashed pages the index still holds
+   * can't take up the `limit`.
+   */
+  async searchContent(
+    query: string,
+    limit: number,
+    only?: readonly PageId[],
+  ): Promise<ContentMatch[]> {
     try {
-      const hits = await this.store.searchContent(query, limit);
       const live = new Set(this.pages.map((p) => p.id));
+      const scope = only ? only.filter((id) => live.has(id)) : [...live];
+      const hits = await this.store.searchContent(query, limit, scope);
       return hits.filter((hit) => live.has(hit.id));
     } catch {
       return [];
