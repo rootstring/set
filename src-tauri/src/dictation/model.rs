@@ -2,27 +2,55 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-pub const FILE: &str = "ggml-small.bin";
+pub const FILE: &str = "ggml-small-q5_1.bin";
 
-pub const URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
+pub const URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin";
 
-pub const BYTES: u64 = 487_601_967;
+pub const BYTES: u64 = 190_085_487;
 
-pub const SHA256: &str = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b";
+pub const SHA256: &str = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb";
 
-pub const MEMORY_BYTES: u64 = 900_000_000;
+pub const MEMORY_BYTES: u64 = 700_000_000;
+
+pub mod previous {
+    pub const FILE: &str = "ggml-small.bin";
+    pub const BYTES: u64 = 487_601_967;
+}
 
 pub const LABEL: &str = "Whisper small";
 pub const PARAMETERS: &str = "244M";
 
 fn plausible(len: u64) -> bool {
-    len >= BYTES / 2
+    plausible_for(len, BYTES)
+}
+
+fn plausible_for(len: u64, expected: u64) -> bool {
+    len >= expected / 2
 }
 
 pub fn is_installed(path: &Path) -> bool {
     fs::metadata(path)
         .map(|m| plausible(m.len()))
         .unwrap_or(false)
+}
+
+pub fn previous_path_in(dir: &Path) -> PathBuf {
+    dir.join(previous::FILE)
+}
+
+pub fn previous_installed(dir: &Path) -> bool {
+    fs::metadata(previous_path_in(dir))
+        .map(|m| plausible_for(m.len(), previous::BYTES))
+        .unwrap_or(false)
+}
+
+pub fn usable_in(dir: &Path) -> Option<PathBuf> {
+    let current = path_in(dir);
+    if is_installed(&current) {
+        return Some(current);
+    }
+    previous_installed(dir).then(|| previous_path_in(dir))
 }
 
 #[derive(Debug)]
@@ -149,7 +177,45 @@ mod tests {
     fn the_model_path_is_the_whisper_cpp_name() {
         assert_eq!(
             path_in(Path::new("/models")),
-            Path::new("/models/ggml-small.bin")
+            Path::new("/models/ggml-small-q5_1.bin")
         );
+    }
+
+    fn model_file(dir: &Path, name: &str, len: u64) {
+        fs::File::create(dir.join(name))
+            .unwrap()
+            .set_len(len)
+            .unwrap();
+    }
+
+    #[test]
+    fn the_current_model_is_used_when_it_is_installed() {
+        let dir = crate::testing::TempDir::new("model");
+        model_file(dir.path(), FILE, BYTES);
+        model_file(dir.path(), previous::FILE, previous::BYTES);
+        assert_eq!(usable_in(dir.path()), Some(path_in(dir.path())));
+    }
+
+    #[test]
+    fn the_previous_model_keeps_dictation_working_until_it_is_replaced() {
+        let dir = crate::testing::TempDir::new("model");
+        model_file(dir.path(), previous::FILE, previous::BYTES);
+        assert_eq!(usable_in(dir.path()), Some(previous_path_in(dir.path())));
+        assert!(!is_installed(&path_in(dir.path())));
+    }
+
+    #[test]
+    fn a_half_downloaded_current_model_falls_back_to_the_previous_one() {
+        let dir = crate::testing::TempDir::new("model");
+        model_file(dir.path(), FILE, BYTES / 4);
+        model_file(dir.path(), previous::FILE, previous::BYTES);
+        assert_eq!(usable_in(dir.path()), Some(previous_path_in(dir.path())));
+    }
+
+    #[test]
+    fn a_truncated_previous_model_is_not_used() {
+        let dir = crate::testing::TempDir::new("model");
+        model_file(dir.path(), previous::FILE, previous::BYTES / 4);
+        assert_eq!(usable_in(dir.path()), None);
     }
 }

@@ -284,7 +284,9 @@ pub fn run() {
 
             app.manage(watch::Watch::new(app.handle().clone()));
 
-            app.manage(dictation::Dictation::new(app.handle().clone()));
+            let dictation = dictation::Dictation::new(app.handle().clone());
+            dictation.upgrade_model();
+            app.manage(dictation);
 
             app.manage(updates::Updates::default());
 

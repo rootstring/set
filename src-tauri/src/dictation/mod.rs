@@ -88,13 +88,18 @@ impl Inner {
         model::path_in(&self.dir)
     }
 
+    fn usable_model(&self) -> Option<PathBuf> {
+        model::usable_in(&self.dir)
+    }
+
     fn status(&self) -> Status {
-        let path = self.model_path();
+        let usable = self.usable_model();
+        let path = usable.clone().unwrap_or_else(|| self.model_path());
         Status {
             available: cfg!(feature = "dictation"),
             phase: *self.phase.lock().unwrap(),
 
-            model_installed: model::is_installed(&path),
+            model_installed: usable.is_some(),
             model_path: Some(path.to_string_lossy().into_owned()),
             model_bytes: model::BYTES,
             model_memory_bytes: model::MEMORY_BYTES,
@@ -142,10 +147,42 @@ pub fn dictation_status(state: State<Dictation>) -> Status {
 
 #[tauri::command]
 pub fn dictation_download_model(state: State<Dictation>) -> Result<(), String> {
+    download_model(state.0.clone())
+}
+
+impl Dictation {
+    pub fn upgrade_model(&self) {
+        let inner = &self.0;
+        if !cfg!(feature = "dictation") || !model::previous_installed(&inner.dir) {
+            return;
+        }
+        if model::is_installed(&inner.model_path()) {
+            remove_previous_model(inner);
+            return;
+        }
+        crate::log::info("dictation.model_upgrade")
+            .field("from", model::previous::FILE)
+            .field("to", model::FILE)
+            .emit();
+        let _ = download_model(inner.clone());
+    }
+}
+
+fn remove_previous_model(inner: &Inner) {
+    let path = model::previous_path_in(&inner.dir);
+    if let Err(e) = std::fs::remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            crate::log::warn("dictation.previous_model_kept")
+                .field("error", e.to_string())
+                .emit();
+        }
+    }
+}
+
+fn download_model(inner: Arc<Inner>) -> Result<(), String> {
     if !cfg!(feature = "dictation") {
         return Err(UNAVAILABLE.into());
     }
-    let inner = state.0.clone();
     if *inner.phase.lock().unwrap() != Phase::Idle {
         return Err("Dictation is already busy".into());
     }
@@ -170,6 +207,7 @@ pub fn dictation_download_model(state: State<Dictation>) -> Result<(), String> {
                 crate::log::info("dictation.downloaded")
                     .elapsed(started)
                     .emit();
+                remove_previous_model(&inner);
                 inner.set_phase(Phase::Idle)
             }
 
@@ -193,9 +231,10 @@ pub fn dictation_cancel_download(state: State<Dictation>) {
 #[tauri::command]
 pub fn dictation_delete_model(state: State<Dictation>) -> Result<(), String> {
     let inner = &state.0;
-    let path = inner.model_path();
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| inner.fail(format!("Couldn't delete: {e}")))?;
+    for path in [inner.model_path(), model::previous_path_in(&inner.dir)] {
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| inner.fail(format!("Couldn't delete: {e}")))?;
+        }
     }
     inner.clear_error();
     inner.publish();
@@ -208,7 +247,7 @@ pub fn dictation_start(state: State<Dictation>) -> Result<(), String> {
     if *inner.phase.lock().unwrap() != Phase::Idle {
         return Err("Dictation is already busy".into());
     }
-    if !model::is_installed(&inner.model_path()) {
+    if inner.usable_model().is_none() {
         return Err(inner.fail("The dictation model isn't downloaded yet."));
     }
     start_recording(&inner)?;
@@ -260,7 +299,11 @@ fn finish_recording(inner: &Arc<Inner>, language: Option<String>) -> Result<(), 
             return;
         }
         let started = std::time::Instant::now();
-        match engine::transcribe(&inner.model_path(), &audio, language.as_deref()) {
+        let Some(model) = inner.usable_model() else {
+            inner.fail("The dictation model isn't downloaded yet.");
+            return;
+        };
+        match engine::transcribe(&model, &audio, language.as_deref()) {
             Ok(text) if text.is_empty() => {
                 inner.fail("Nothing was picked up. Check the microphone.");
             }
