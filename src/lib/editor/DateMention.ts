@@ -2,14 +2,9 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import type { Editor, Range } from "@tiptap/core";
 import { formatDateLabel } from "./date-format";
 import { showDatePicker } from "./date-picker";
+import { CALENDAR_ICON as CALENDAR_SVG } from "@rootstring/set-markdown";
 
 const DATE_NODE = "date";
-
-const CALENDAR_SVG =
-  '<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" ' +
-  'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<rect x="2.25" y="3" width="11.5" height="10.5" rx="1.75"/>' +
-  '<path d="M5.25 1.75V4.25M10.75 1.75V4.25M2.25 6.5h11.5"/></svg>';
 
 const SCHEME = "date:";
 

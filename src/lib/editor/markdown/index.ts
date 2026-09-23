@@ -8,7 +8,7 @@ import {
   type MarkSerializer,
   type NodeSerializer,
 } from "./serialize";
-import type { MarkdownIt } from "./types";
+import type { MarkdownIt } from "@rootstring/set-markdown";
 
 interface MarkdownStorage {
   parser: { md: MarkdownIt };

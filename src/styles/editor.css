@@ -1,313 +1,16 @@
-.ProseMirror {
-  font-size: var(--editor-font-size);
-  font-family: var(--font-body);
-  line-height: var(--editor-line-height);
-  color: var(--text);
-
-  --marker-gutter: calc(1.5 * var(--editor-font-size));
-  --list-indent: calc(1.375 * var(--editor-font-size));
-  --checkbox-size: calc(0.95 * var(--editor-font-size));
-
-  --list-gap: calc(0.375 * var(--editor-font-size));
-
-  --editor-line: calc(var(--editor-line-height) * var(--editor-font-size));
-
-  width: var(--reading-column);
-  margin-inline: auto;
-}
 .dragging-block .ProseMirror {
   width: 100%;
   padding-inline: var(--reading-pad);
 }
-.ProseMirror :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) {
-  margin: 0;
-}
-/* `pretty` weighs the paragraph as a whole; the right edge stays ragged on purpose. */
-.ProseMirror :where(p, li, blockquote, dd, figcaption) {
-  text-wrap: pretty;
-}
-/* A heading is a line or two, where a one-word second line is the whole
-   shape of it, so these balance rather than merely avoid the worst break. */
-.ProseMirror :where(h1, h2, h3, h4, h5, h6) {
-  text-wrap: balance;
-}
-.ProseMirror > * + * {
-  margin-top: var(--block-gap);
-}
-.ProseMirror h1 {
-  font-size: 1.875em;
-  font-weight: 700;
-  line-height: 1.3;
-  margin-top: 1.75rem;
-  margin-bottom: 0.85rem;
-}
-.ProseMirror h2 {
-  font-size: 1.5em;
-  font-weight: 600;
-  line-height: 1.3;
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
-}
-.ProseMirror h3 {
-  font-size: 1.25em;
-  font-weight: 600;
-  line-height: 1.3;
-  margin-top: 1.15rem;
-  margin-bottom: 0.6rem;
-}
-.ProseMirror ul,
-.ProseMirror ol {
-  margin-left: 0;
-  padding-left: var(--marker-gutter);
-}
-.ProseMirror ul:not([data-type="taskList"]),
-.ProseMirror ol {
-  list-style: none;
-}
-.ProseMirror ul:not([data-type="taskList"]) > li,
-.ProseMirror ol > li {
-  position: relative;
-}
-.ProseMirror ul:not([data-type="taskList"]) > li::before {
-  content: "";
-  position: absolute;
-  left: calc(0.5 * var(--checkbox-size) - var(--marker-gutter));
-  top: calc(0.5 * var(--editor-line));
-  transform: translate(-50%, -50%);
-  width: 0.3em;
-  height: 0.3em;
-  border-radius: 50%;
-  background: var(--text-subtle);
-}
-.ProseMirror ol > li::before {
-  content: counter(list-item) ".";
-  position: absolute;
-  left: calc(-1 * var(--marker-gutter));
-  top: 0;
 
-  font-size: 0.875em;
-  line-height: var(--editor-line);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-subtle);
-}
-.ProseMirror li > ul,
-.ProseMirror li > ol,
-.ProseMirror li > div > ul,
-.ProseMirror li > div > ol {
-  position: relative;
-  margin-top: var(--list-gap);
-  margin-left: calc(var(--list-indent) - var(--marker-gutter));
-}
-.ProseMirror li > ul::before,
-.ProseMirror li > ol::before,
-.ProseMirror li > div > ul::before,
-.ProseMirror li > div > ol::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-
-  left: calc(0.5 * var(--checkbox-size) - var(--list-indent));
-  border-left: 1px solid var(--border);
-  pointer-events: none;
-}
-.ProseMirror li + li {
-  margin-top: var(--list-gap);
-}
-/* A loose list, one written with blank lines between its items, is spaced the
-   way Markdown means it: further apart than the tight list the editor makes. */
-.ProseMirror ul:not([data-tight]):not([data-type="taskList"]) > li + li,
-.ProseMirror ol:not([data-tight]) > li + li {
-  margin-top: calc(2 * var(--list-gap));
-}
-.ProseMirror > ul + ul,
-.ProseMirror > ul + ol,
-.ProseMirror > ol + ul,
-.ProseMirror > ol + ol {
-  margin-top: var(--list-gap);
-}
-.ProseMirror blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: calc(var(--marker-gutter) - 3px);
-  color: var(--text-muted);
-}
-.ProseMirror a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-color: var(--accent-soft);
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-.ProseMirror a:hover {
-  text-decoration-color: var(--accent);
-}
-.ProseMirror code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background-color: var(--bg-elevated);
-  padding: 0.15em 0.35em;
-  border-radius: 4px;
-}
-.ProseMirror pre {
-  font-family: var(--font-mono);
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.85rem 1rem;
-  overflow-x: auto;
-}
-.ProseMirror pre code {
-  background: none;
-  padding: 0;
-  font-size: 0.875rem;
-}
-.ProseMirror pre code .hljs-comment,
-.ProseMirror pre code .hljs-quote {
-  color: var(--hl-comment);
-  font-style: italic;
-}
-.ProseMirror pre code .hljs-keyword,
-.ProseMirror pre code .hljs-literal,
-.ProseMirror pre code .hljs-selector-tag,
-.ProseMirror pre code .hljs-section,
-.ProseMirror pre code .hljs-doctag {
-  color: var(--hl-keyword);
-}
-.ProseMirror pre code .hljs-string,
-.ProseMirror pre code .hljs-regexp,
-.ProseMirror pre code .hljs-addition {
-  color: var(--hl-string);
-}
-.ProseMirror pre code .hljs-number,
-.ProseMirror pre code .hljs-symbol,
-.ProseMirror pre code .hljs-bullet {
-  color: var(--hl-number);
-}
-.ProseMirror pre code .hljs-title,
-.ProseMirror pre code .hljs-name,
-.ProseMirror pre code .hljs-selector-id,
-.ProseMirror pre code .hljs-selector-class {
-  color: var(--hl-function);
-}
-.ProseMirror pre code .hljs-title.class_,
-.ProseMirror pre code .hljs-type {
-  color: var(--hl-class);
-}
-.ProseMirror pre code .hljs-attr,
-.ProseMirror pre code .hljs-attribute,
-.ProseMirror pre code .hljs-variable,
-.ProseMirror pre code .hljs-template-variable,
-.ProseMirror pre code .hljs-property,
-.ProseMirror pre code .hljs-selector-attr,
-.ProseMirror pre code .hljs-selector-pseudo,
-.ProseMirror pre code .hljs-deletion {
-  color: var(--hl-variable);
-}
-.ProseMirror pre code .hljs-built_in,
-.ProseMirror pre code .hljs-meta,
-.ProseMirror pre code .hljs-tag {
-  color: var(--hl-builtin);
-}
-.ProseMirror pre code .hljs-emphasis {
-  font-style: italic;
-}
-.ProseMirror pre code .hljs-strong {
-  font-weight: 600;
-}
-.ProseMirror pre code .hljs-link {
-  text-decoration: underline;
-}
-.ProseMirror hr {
-  --divider-color: var(--border);
-  border: none;
-  height: var(--drag-handle-height);
-  margin-block: calc(1.2rem - var(--drag-handle-height) / 2);
-  background-image: linear-gradient(var(--divider-color), var(--divider-color));
-  background-repeat: no-repeat;
-  background-size: 100% 1px;
-  background-position: center;
-}
 .ProseMirror hr.ProseMirror-selectednode {
   --divider-color: var(--accent);
 }
-.ProseMirror ul[data-type="taskList"] {
-  list-style: none;
-}
-.ProseMirror ul[data-type="taskList"] > li {
-  display: flex;
-  align-items: flex-start;
 
-  gap: 0;
-}
-.ProseMirror ul[data-type="taskList"] > li > label {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  width: var(--marker-gutter);
-  margin-left: calc(-1 * var(--marker-gutter));
-  height: var(--editor-line);
-  user-select: none;
-}
-.ProseMirror ul[data-type="taskList"] > li > div {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  position: relative;
-  flex: 0 0 auto;
-
-  font: inherit;
-  width: var(--checkbox-size);
-  height: var(--checkbox-size);
-  margin: 0;
-  border: 1.5px solid var(--text-subtle);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease;
-}
-.ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"]:hover {
-  border-color: var(--text-muted);
-}
-.ProseMirror
-  ul[data-type="taskList"]
-  > li
-  > label
-  > input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.ProseMirror
-  ul[data-type="taskList"]
-  > li
-  > label
-  > input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 48%;
-  width: 0.3em;
-  height: 0.58em;
-  border: solid var(--on-accent);
-  border-width: 0 2px 2px 0;
-  transform: translate(-50%, -55%) rotate(45deg);
-}
-.ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div > p {
-  color: var(--text-subtle);
-  text-decoration: line-through;
-}
 .ProseMirror li[data-progress="partial"] > label > input[type="checkbox"]:not(:checked) {
   border-color: var(--accent);
 }
+
 .ProseMirror
   li[data-progress="partial"]
   > label
@@ -322,9 +25,11 @@
   background: var(--accent);
   transform: translate(-50%, -50%);
 }
+
 .ProseMirror li[data-progress="all"] > label > input[type="checkbox"]:not(:checked) {
   border-color: var(--accent);
 }
+
 .ProseMirror .task-count {
   margin-left: 0.5em;
   font-size: 0.8em;
@@ -334,40 +39,26 @@
   user-select: none;
   cursor: default;
 }
+
 .ProseMirror li[data-progress="all"] > div > p > .task-count {
   color: var(--accent);
 }
-.ProseMirror .page-link {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 
-  padding: 0.25rem 0.4rem 0.25rem 0;
-
-  line-height: 1;
-  border-radius: var(--radius);
-
-  color: var(--accent);
-  cursor: pointer;
-  user-select: none;
-  transition: background-color 0.12s ease;
-}
 .ProseMirror .page-link.ProseMirror-selectednode {
   background-color: var(--accent-soft);
   color: var(--accent-ink);
 }
+
 .ProseMirror .page-link.ProseMirror-selectednode .page-link-icon {
   color: var(--accent-ink);
 }
-/* A fill would read as the drop-into ring below. */
-.ProseMirror .page-link:hover .page-link-title {
-  text-decoration-color: currentColor;
-}
+
 /* Dropping a block here files it inside the page. */
 .ProseMirror .page-link.drop-into {
   background-color: var(--accent-soft);
   box-shadow: inset 0 0 0 2px var(--accent);
 }
+
 .ProseMirror .page-link.drop-into .page-link-icon,
 .ProseMirror .page-link.drop-into .page-link-title {
   color: var(--accent-ink);
@@ -379,80 +70,32 @@
   display: none;
 }
 
-.ProseMirror .page-link-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: var(--accent);
-}
-.ProseMirror .page-link-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 3px;
-
-  padding-block: 0.25em;
-  margin-block: -0.25em;
-}
-.ProseMirror .date-mention {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.05rem 0.35rem 0.05rem 0.3rem;
-  border-radius: var(--radius);
-  color: var(--accent-ink);
-  background-color: var(--accent-soft);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  transition: background-color 0.12s ease;
-}
 .ProseMirror .date-mention:hover,
 .ProseMirror .date-mention.ProseMirror-selectednode {
   background-color: color-mix(in oklch, var(--accent-soft), var(--accent) 20%);
 }
+
 /* ProseMirror sets `contenteditable` false on the whole editor when read-only. */
 .ProseMirror[contenteditable="false"] .date-mention {
   cursor: default;
 }
+
 .ProseMirror[contenteditable="false"] .date-mention:hover {
   background-color: var(--accent-soft);
 }
-.ProseMirror .date-mention-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  font-size: 0.85em;
-}
-.ProseMirror .date-mention-label {
-  font-size: 0.9em;
-}
-.ProseMirror .image-block {
-  display: flex;
-}
-.ProseMirror .image-frame {
-  position: relative;
 
-  display: inline-block;
-  max-width: 100%;
-  line-height: 0;
-}
-.ProseMirror .image-frame img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  border-radius: var(--radius);
-}
 .ProseMirror .image-block.missing .image-frame {
   min-width: 8rem;
   min-height: 5rem;
   border: 1px dashed var(--border);
   background: var(--bg-elevated);
 }
+
 .ProseMirror .image-block.selected .image-frame img {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
 .ProseMirror .image-grip {
   position: absolute;
   right: 6px;
@@ -466,21 +109,26 @@
   opacity: 0;
   transition: opacity 0.12s ease;
 }
+
 .ProseMirror .image-block:hover .image-grip,
 .ProseMirror .image-block.selected .image-grip,
 .ProseMirror .image-block.resizing .image-grip {
   opacity: 1;
 }
+
 .ProseMirror .image-block.resizing {
   cursor: nwse-resize;
   user-select: none;
 }
+
 .ProseMirror[contenteditable="false"] .image-grip {
   display: none;
 }
+
 .ProseMirror .details {
   position: relative;
 }
+
 .ProseMirror .details-toggle {
   position: absolute;
   top: 0;
@@ -501,54 +149,40 @@
     background-color 0.12s ease,
     color 0.12s ease;
 }
+
 .ProseMirror .details-toggle:hover {
   background-color: var(--bg-hover);
   color: var(--text-muted);
 }
+
 .ProseMirror .details-toggle svg {
   transition: transform 0.15s ease;
 }
+
 .ProseMirror .details[data-open="true"] .details-toggle svg {
   transform: rotate(90deg);
 }
+
 .ProseMirror .details-inner {
   padding-left: var(--marker-gutter);
 }
+
 .ProseMirror .details-inner > .details-summary {
   font-weight: 600;
 }
+
 .ProseMirror .details-inner > .details-summary + * {
   margin-top: 0.4rem;
 }
+
 .ProseMirror .details[data-open="false"] .details-inner > :not(.details-summary) {
   display: none;
 }
-/*
- * Scrolled sideways inside the reading column; a swipe that reaches the end must not trigger the
- * window's back gesture.
- */
-.ProseMirror .tableWrapper {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-.ProseMirror table {
-  border-collapse: collapse;
-}
-.ProseMirror th,
-.ProseMirror td {
-  min-width: 4em;
-  padding: 0.3em 0.65em;
-  border: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-}
-.ProseMirror th {
-  font-weight: 600;
-  background-color: var(--bg-elevated);
-}
+
 .ProseMirror .selectedCell {
   background-color: var(--accent-soft);
 }
+
 /* Selected whole, from the drag handle. The class lands on the wrapper. */
 .ProseMirror .tableWrapper.ProseMirror-selectednode > table {
   outline: 2px solid var(--accent);
@@ -570,38 +204,20 @@
   cursor: pointer;
   visibility: hidden;
 }
+
 .table-add:hover {
   color: var(--accent);
   background-color: var(--bg-hover);
   border-style: solid;
   border-color: var(--accent);
 }
+
 .table-add-row {
   height: 13px;
 }
+
 .table-add-col {
   width: 13px;
-}
-/* The three the slash menu doesn't offer, which a note from elsewhere may use. */
-.ProseMirror h4 {
-  font-size: 1.1em;
-  font-weight: 600;
-  line-height: 1.35;
-  margin-top: 1rem;
-  margin-bottom: 0.5rem;
-}
-.ProseMirror h5 {
-  font-size: 1em;
-  font-weight: 600;
-  margin-top: 0.9rem;
-  margin-bottom: 0.45rem;
-}
-.ProseMirror h6 {
-  font-size: 0.9em;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-top: 0.9rem;
-  margin-bottom: 0.45rem;
 }
 
 /* Source kept exactly as the file had it: HTML Set can't show, and runs of
@@ -615,188 +231,70 @@
   border-radius: var(--radius);
   padding: 0.4rem 0.75rem;
 }
+
 .ProseMirror .raw-inline {
   font-family: var(--font-mono);
   font-size: 0.8em;
   color: var(--text-subtle);
 }
 
-/* Equations: KaTeX draws them, the dialog edits them; the source is what the file keeps. */
-.ProseMirror .math-inline {
-  border-radius: 4px;
-  padding-inline: 0.1em;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
 .ProseMirror .math-inline:hover,
 .ProseMirror .math-inline.ProseMirror-selectednode {
   background-color: var(--accent-soft);
 }
+
 .ProseMirror .math-inline:empty::before {
   content: "equation";
   color: var(--text-subtle);
   font-style: italic;
 }
+
 /* The source, until KaTeX has drawn it. */
 .ProseMirror .math-pending {
   font-family: var(--font-mono);
   font-size: 0.875em;
   color: var(--text-muted);
 }
-.ProseMirror .math-block {
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
+
 .ProseMirror .math-block:hover,
 .ProseMirror .math-block.ProseMirror-selectednode {
   background-color: var(--accent-soft);
 }
-.ProseMirror .math-preview {
-  padding: 0.5rem 0.25rem;
-  text-align: center;
-  overflow-x: auto;
-}
+
 .ProseMirror .math-block.empty .math-preview::before {
   content: "Empty equation";
   color: var(--text-subtle);
   font-style: italic;
 }
-.ProseMirror .katex-display {
-  margin: 0;
-}
-/* A wide equation scrolls rather than pushing the page out. */
-.ProseMirror .katex-display > .katex {
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-block: 0.15em;
-}
 
-.ProseMirror mark {
-  color: inherit;
-  background-color: color-mix(in oklch, var(--warning) 26%, transparent);
-  border-radius: 2px;
-  padding-inline: 0.1em;
-}
-
-.ProseMirror .footnote-ref {
-  font-size: 0.75em;
-  color: var(--accent);
-  padding-inline: 0.1em;
-  cursor: pointer;
-}
-.ProseMirror .footnote-definition {
-  display: flex;
-  gap: 0.5rem;
-  font-size: 0.875em;
-  color: var(--text-muted);
-}
-.ProseMirror .footnote-label {
-  flex: none;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  user-select: none;
-}
-.ProseMirror .footnote-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/*
- * Same clothes as the child-page block, but the arrow leaves the sheet, the underline is dashed,
- * and it stays inline.
- */
-.ProseMirror .wiki-link {
-  display: inline;
-  border-radius: var(--radius);
-  padding-inline: 0.15em;
-  margin-inline: -0.05em;
-  color: var(--accent);
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-.ProseMirror .wiki-link:hover,
 .ProseMirror .wiki-link.ProseMirror-selectednode {
   background-color: var(--accent-soft);
   color: var(--accent-ink);
 }
-.ProseMirror .wiki-link-icon {
-  display: inline-flex;
-  margin-inline-end: 0.25em;
 
-  /* Sits on the text's baseline rather than the line box's, so the sheet lines
-     up with the x-height of the title beside it at any font size. */
-  vertical-align: -0.075em;
-}
-.ProseMirror .wiki-link-title {
-  text-decoration: underline;
-  text-decoration-style: dashed;
-  text-decoration-color: color-mix(in oklch, currentColor 45%, transparent);
-  text-underline-offset: 3px;
-}
 /* No page answers to this title. */
 .ProseMirror .wiki-link.missing {
   color: var(--text-muted);
   cursor: default;
 }
+
 .ProseMirror .wiki-link.missing:hover {
   background-color: transparent;
   color: var(--text-muted);
 }
+
 .ProseMirror .wiki-link.missing .wiki-link-icon {
   opacity: 0.6;
 }
+
 .ProseMirror .wiki-link.missing .wiki-link-title {
   text-decoration-color: var(--border);
 }
 
-.ProseMirror .callout {
-  --callout: var(--accent);
-  border-left: 3px solid var(--callout);
-  background-color: color-mix(in oklch, var(--callout) 7%, transparent);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: 0.5rem 0.85rem;
-}
-.ProseMirror .callout[data-kind="tip"] {
-  --callout: var(--hl-string);
-}
-.ProseMirror .callout[data-kind="important"] {
-  --callout: var(--hl-keyword);
-}
-.ProseMirror .callout[data-kind="warning"] {
-  --callout: var(--warning);
-}
-.ProseMirror .callout[data-kind="caution"] {
-  --callout: var(--danger);
-}
-.ProseMirror .callout-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  width: fit-content;
-  margin-bottom: 0.25rem;
-  font-size: 0.9em;
-  font-weight: 600;
-  color: var(--callout);
-  cursor: pointer;
-  user-select: none;
-}
 .ProseMirror[contenteditable="false"] .callout-header {
   cursor: default;
 }
-.ProseMirror .callout-icon {
-  display: inline-flex;
-}
-.ProseMirror .callout-body > * + * {
-  margin-top: var(--block-gap);
-}
 
-.ProseMirror .inline-image {
-  max-width: 100%;
-  height: auto;
-  vertical-align: middle;
-  border-radius: 4px;
-}
 .ProseMirror .inline-image.ProseMirror-selectednode {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -813,16 +311,20 @@
   );
   transition: background-color 0.12s ease;
 }
+
 :root[data-drag-handle="off"] .drag-handle {
   display: none;
 }
+
 /* Set and cleared by `DragHitArea`. */
 .away-from-handle .drag-handle {
   visibility: hidden;
 }
+
 .drag-handle:active {
   cursor: grabbing;
 }
+
 .block-menu {
   position: fixed;
   z-index: 60;
@@ -835,6 +337,7 @@
   border-radius: var(--radius);
   box-shadow: 0 8px 24px oklch(0% 0 0 / 0.24);
 }
+
 .block-menu-item {
   display: flex;
   align-items: center;
@@ -850,31 +353,38 @@
   text-align: left;
   cursor: pointer;
 }
+
 .block-menu-item:hover:not(:disabled) {
   background: var(--accent);
   color: var(--on-accent);
 }
+
 .block-menu-item:hover:not(:disabled) .block-menu-icon {
   color: var(--on-accent);
 }
+
 /* Listed, but not on offer, so the menu reads the same everywhere. */
 .block-menu-item:disabled {
   opacity: 0.45;
   cursor: default;
 }
+
 .block-menu-icon {
   display: inline-flex;
   flex: 0 0 auto;
   font-size: 0.9375rem;
   color: var(--text-subtle);
 }
+
 .block-menu-item.danger:hover:not(:disabled) {
   background: var(--danger);
   color: oklch(100% 0 0);
 }
+
 .block-menu-item.danger:hover:not(:disabled) .block-menu-icon {
   color: oklch(100% 0 0);
 }
+
 .date-picker {
   position: fixed;
   z-index: 60;
@@ -886,16 +396,19 @@
   border-radius: var(--radius);
   box-shadow: 0 8px 24px oklch(0% 0 0 / 0.24);
 }
+
 .date-picker-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.4rem;
 }
+
 .date-picker-label {
   font-size: 0.85rem;
   font-weight: 500;
 }
+
 .date-picker-nav {
   display: inline-flex;
   align-items: center;
@@ -910,15 +423,18 @@
   line-height: 1;
   cursor: pointer;
 }
+
 .date-picker-nav:hover {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+
 .date-picker-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
 }
+
 .date-picker-weekday {
   display: flex;
   align-items: center;
@@ -927,6 +443,7 @@
   color: var(--text-subtle);
   font-size: 0.7rem;
 }
+
 .date-picker-day {
   display: flex;
   align-items: center;
@@ -939,20 +456,25 @@
   font-size: 0.8rem;
   cursor: pointer;
 }
+
 .date-picker-day:hover {
   background: var(--accent-soft);
 }
+
 .date-picker-day.today {
   color: var(--accent);
   font-weight: 600;
 }
+
 .date-picker-day.today:hover {
   color: var(--accent-ink);
 }
+
 .date-picker-day.selected {
   background: var(--accent);
   color: oklch(100% 0 0);
 }
+
 /* One height for both, so the picker does not jump. */
 .date-picker-time {
   display: flex;
@@ -964,6 +486,7 @@
   padding-top: 0.4rem;
   border-top: 1px solid var(--border);
 }
+
 .date-picker-time-input {
   padding: 0.2rem 0.35rem;
   border: 1px solid var(--border);
@@ -973,12 +496,14 @@
   font: inherit;
   font-size: 0.8rem;
 }
+
 .date-picker-footer {
   display: flex;
   justify-content: space-between;
   gap: 0.4rem;
   margin-top: 0.25rem;
 }
+
 .date-picker-action {
   padding: 0.25rem 0.4rem;
   border: none;
@@ -989,10 +514,12 @@
   font-weight: 500;
   cursor: pointer;
 }
+
 .date-picker-action:hover {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+
 .date-picker-action.danger:hover {
   background: var(--danger);
   color: oklch(100% 0 0);

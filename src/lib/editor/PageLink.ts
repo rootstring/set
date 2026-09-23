@@ -1,5 +1,6 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
+import { PAGE_ICON as ICON_SVG } from "@rootstring/set-markdown";
 import { PAGE_LINK_NODE } from "./page-links";
 import {
   TRASH_SVG,
@@ -19,12 +20,6 @@ export interface PageLinkOptions {
 }
 
 const SCHEME = "page:";
-
-const ICON_SVG =
-  '<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" ' +
-  'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M9 1.83H4.75c-.69 0-1.25.56-1.25 1.25v9.84c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V5.5Z"/>' +
-  '<path d="M9 1.83V5.5h3.5"/><path d="M5.75 8.75h4.5M5.75 11.25h3"/></svg>';
 
 function displayTitle(title: string): string {
   return title.trim() || "Untitled";

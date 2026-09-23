@@ -1,6 +1,6 @@
 import { MarkdownSerializerState } from "prosemirror-markdown";
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
-import type { MarkdownIt } from "./types";
+import type { MarkdownIt } from "@rootstring/set-markdown";
 
 /** Marked internal by prosemirror-markdown but what every serializer spec is written against. */
 interface StateInternals {

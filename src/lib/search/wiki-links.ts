@@ -7,7 +7,7 @@ export interface ScannableBody {
 }
 
 /**
- * Read off raw Markdown, which the index already holds. Must agree with `markdown/syntax-extras.ts`
+ * Read off raw Markdown, which the index already holds. Must agree with `wikiLink` in packages/markdown/src/dialect.ts
  * and `Workspace.pageIdByTitle`. Mirrored by `wiki_link_titles` in src-tauri/src/index.rs.
  */
 export function wikiLinkTitles(body: string): string[] {

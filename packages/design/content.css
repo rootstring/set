@@ -1,0 +1,686 @@
+/*
+ * A note as Set draws it: the editor (`.ProseMirror`) and anywhere a note is published
+ * (`.set-content`, holding @rootstring/set-markdown's `renderHtml` output as direct children).
+ * Needs `tokens.css`. The editor's editing-only rules (selection, drag, grips, menus) stay in the
+ * app's `editor.css`.
+ */
+
+:is(.ProseMirror, .set-content) {
+  font-size: var(--editor-font-size);
+  font-family: var(--font-body);
+  line-height: var(--editor-line-height);
+  color: var(--text);
+
+  --marker-gutter: calc(1.5 * var(--editor-font-size));
+  --list-indent: calc(1.375 * var(--editor-font-size));
+  --checkbox-size: calc(0.95 * var(--editor-font-size));
+
+  --list-gap: calc(0.375 * var(--editor-font-size));
+
+  --editor-line: calc(var(--editor-line-height) * var(--editor-font-size));
+
+  width: var(--reading-column);
+  margin-inline: auto;
+}
+
+:is(.ProseMirror, .set-content) :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) {
+  margin: 0;
+}
+
+/* `pretty` weighs the paragraph as a whole; the right edge stays ragged on purpose. */
+:is(.ProseMirror, .set-content) :where(p, li, blockquote, dd, figcaption) {
+  text-wrap: pretty;
+}
+
+/* A heading is a line or two, where a one-word second line is the whole
+   shape of it, so these balance rather than merely avoid the worst break. */
+:is(.ProseMirror, .set-content) :where(h1, h2, h3, h4, h5, h6) {
+  text-wrap: balance;
+}
+
+:is(.ProseMirror, .set-content) > * + * {
+  margin-top: var(--block-gap);
+}
+
+:is(.ProseMirror, .set-content) h1 {
+  font-size: 1.875em;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.75rem;
+  margin-bottom: 0.85rem;
+}
+
+:is(.ProseMirror, .set-content) h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+:is(.ProseMirror, .set-content) h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.15rem;
+  margin-bottom: 0.6rem;
+}
+
+:is(.ProseMirror, .set-content) ul,
+:is(.ProseMirror, .set-content) ol {
+  margin-left: 0;
+  padding-left: var(--marker-gutter);
+}
+
+:is(.ProseMirror, .set-content) ul:not([data-type="taskList"]),
+:is(.ProseMirror, .set-content) ol {
+  list-style: none;
+}
+
+:is(.ProseMirror, .set-content) ul:not([data-type="taskList"]) > li,
+:is(.ProseMirror, .set-content) ol > li {
+  position: relative;
+}
+
+:is(.ProseMirror, .set-content) ul:not([data-type="taskList"]) > li::before {
+  content: "";
+  position: absolute;
+  left: calc(0.5 * var(--checkbox-size) - var(--marker-gutter));
+  top: calc(0.5 * var(--editor-line));
+  transform: translate(-50%, -50%);
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: var(--text-subtle);
+}
+
+:is(.ProseMirror, .set-content) ol > li::before {
+  content: counter(list-item) ".";
+  position: absolute;
+  left: calc(-1 * var(--marker-gutter));
+  top: 0;
+
+  font-size: 0.875em;
+  line-height: var(--editor-line);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-subtle);
+}
+
+:is(.ProseMirror, .set-content) li > ul,
+:is(.ProseMirror, .set-content) li > ol,
+:is(.ProseMirror, .set-content) li > div > ul,
+:is(.ProseMirror, .set-content) li > div > ol {
+  position: relative;
+  margin-top: var(--list-gap);
+  margin-left: calc(var(--list-indent) - var(--marker-gutter));
+}
+
+:is(.ProseMirror, .set-content) li > ul::before,
+:is(.ProseMirror, .set-content) li > ol::before,
+:is(.ProseMirror, .set-content) li > div > ul::before,
+:is(.ProseMirror, .set-content) li > div > ol::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+
+  left: calc(0.5 * var(--checkbox-size) - var(--list-indent));
+  border-left: 1px solid var(--border);
+  pointer-events: none;
+}
+
+:is(.ProseMirror, .set-content) li + li {
+  margin-top: var(--list-gap);
+}
+
+/* A loose list, one written with blank lines between its items, is spaced the
+   way Markdown means it: further apart than the tight list the editor makes. */
+:is(.ProseMirror, .set-content)
+  ul:not([data-tight]):not([data-type="taskList"])
+  > li
+  + li,
+:is(.ProseMirror, .set-content) ol:not([data-tight]) > li + li {
+  margin-top: calc(2 * var(--list-gap));
+}
+
+:is(.ProseMirror, .set-content) > ul + ul,
+:is(.ProseMirror, .set-content) > ul + ol,
+:is(.ProseMirror, .set-content) > ol + ul,
+:is(.ProseMirror, .set-content) > ol + ol {
+  margin-top: var(--list-gap);
+}
+
+:is(.ProseMirror, .set-content) blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: calc(var(--marker-gutter) - 3px);
+  color: var(--text-muted);
+}
+
+:is(.ProseMirror, .set-content) a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-soft);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+:is(.ProseMirror, .set-content) a:hover {
+  text-decoration-color: var(--accent);
+}
+
+:is(.ProseMirror, .set-content) code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background-color: var(--bg-elevated);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+
+:is(.ProseMirror, .set-content) pre {
+  font-family: var(--font-mono);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+}
+
+:is(.ProseMirror, .set-content) pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-comment,
+:is(.ProseMirror, .set-content) pre code .hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-keyword,
+:is(.ProseMirror, .set-content) pre code .hljs-literal,
+:is(.ProseMirror, .set-content) pre code .hljs-selector-tag,
+:is(.ProseMirror, .set-content) pre code .hljs-section,
+:is(.ProseMirror, .set-content) pre code .hljs-doctag {
+  color: var(--hl-keyword);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-string,
+:is(.ProseMirror, .set-content) pre code .hljs-regexp,
+:is(.ProseMirror, .set-content) pre code .hljs-addition {
+  color: var(--hl-string);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-number,
+:is(.ProseMirror, .set-content) pre code .hljs-symbol,
+:is(.ProseMirror, .set-content) pre code .hljs-bullet {
+  color: var(--hl-number);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-title,
+:is(.ProseMirror, .set-content) pre code .hljs-name,
+:is(.ProseMirror, .set-content) pre code .hljs-selector-id,
+:is(.ProseMirror, .set-content) pre code .hljs-selector-class {
+  color: var(--hl-function);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-title.class_,
+:is(.ProseMirror, .set-content) pre code .hljs-type {
+  color: var(--hl-class);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-attr,
+:is(.ProseMirror, .set-content) pre code .hljs-attribute,
+:is(.ProseMirror, .set-content) pre code .hljs-variable,
+:is(.ProseMirror, .set-content) pre code .hljs-template-variable,
+:is(.ProseMirror, .set-content) pre code .hljs-property,
+:is(.ProseMirror, .set-content) pre code .hljs-selector-attr,
+:is(.ProseMirror, .set-content) pre code .hljs-selector-pseudo,
+:is(.ProseMirror, .set-content) pre code .hljs-deletion {
+  color: var(--hl-variable);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-built_in,
+:is(.ProseMirror, .set-content) pre code .hljs-meta,
+:is(.ProseMirror, .set-content) pre code .hljs-tag {
+  color: var(--hl-builtin);
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-emphasis {
+  font-style: italic;
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-strong {
+  font-weight: 600;
+}
+
+:is(.ProseMirror, .set-content) pre code .hljs-link {
+  text-decoration: underline;
+}
+
+:is(.ProseMirror, .set-content) hr {
+  --divider-color: var(--border);
+  border: none;
+  height: var(--drag-handle-height);
+  margin-block: calc(1.2rem - var(--drag-handle-height) / 2);
+  background-image: linear-gradient(var(--divider-color), var(--divider-color));
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: center;
+}
+
+:is(.ProseMirror, .set-content) ul[data-type="taskList"] {
+  list-style: none;
+}
+
+:is(.ProseMirror, .set-content) ul[data-type="taskList"] > li {
+  display: flex;
+  align-items: flex-start;
+
+  gap: 0;
+}
+
+:is(.ProseMirror, .set-content) ul[data-type="taskList"] > li > label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: var(--marker-gutter);
+  margin-left: calc(-1 * var(--marker-gutter));
+  height: var(--editor-line);
+  user-select: none;
+}
+
+:is(.ProseMirror, .set-content) ul[data-type="taskList"] > li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li
+  > label
+  > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+
+  font: inherit;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  margin: 0;
+  border: 1.5px solid var(--text-subtle);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li
+  > label
+  > input[type="checkbox"]:hover {
+  border-color: var(--text-muted);
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li
+  > label
+  > input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li
+  > label
+  > input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li
+  > label
+  > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: 0.3em;
+  height: 0.58em;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -55%) rotate(45deg);
+}
+
+:is(.ProseMirror, .set-content)
+  ul[data-type="taskList"]
+  > li[data-checked="true"]
+  > div
+  > p {
+  color: var(--text-subtle);
+  text-decoration: line-through;
+}
+
+:is(.ProseMirror, .set-content) .page-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  padding: 0.25rem 0.4rem 0.25rem 0;
+
+  line-height: 1;
+  border-radius: var(--radius);
+
+  color: var(--accent);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.12s ease;
+}
+
+/* A fill would read as the drop-into ring below. */
+:is(.ProseMirror, .set-content) .page-link:hover .page-link-title {
+  text-decoration-color: currentColor;
+}
+
+:is(.ProseMirror, .set-content) .page-link-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+:is(.ProseMirror, .set-content) .page-link-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+
+  padding-block: 0.25em;
+  margin-block: -0.25em;
+}
+
+:is(.ProseMirror, .set-content) .date-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.05rem 0.35rem 0.05rem 0.3rem;
+  border-radius: var(--radius);
+  color: var(--accent-ink);
+  background-color: var(--accent-soft);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background-color 0.12s ease;
+}
+
+:is(.ProseMirror, .set-content) .date-mention-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.85em;
+}
+
+:is(.ProseMirror, .set-content) .date-mention-label {
+  font-size: 0.9em;
+}
+
+:is(.ProseMirror, .set-content) .image-block {
+  display: flex;
+}
+
+:is(.ProseMirror, .set-content) .image-frame {
+  position: relative;
+
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+:is(.ProseMirror, .set-content) .image-frame img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/*
+ * Scrolled sideways inside the reading column; a swipe that reaches the end must not trigger the
+ * window's back gesture.
+ */
+:is(.ProseMirror, .set-content) .tableWrapper {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+:is(.ProseMirror, .set-content) table {
+  border-collapse: collapse;
+}
+
+:is(.ProseMirror, .set-content) th,
+:is(.ProseMirror, .set-content) td {
+  min-width: 4em;
+  padding: 0.3em 0.65em;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+:is(.ProseMirror, .set-content) th {
+  font-weight: 600;
+  background-color: var(--bg-elevated);
+}
+
+/* The three the slash menu doesn't offer, which a note from elsewhere may use. */
+:is(.ProseMirror, .set-content) h4 {
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+:is(.ProseMirror, .set-content) h5 {
+  font-size: 1em;
+  font-weight: 600;
+  margin-top: 0.9rem;
+  margin-bottom: 0.45rem;
+}
+
+:is(.ProseMirror, .set-content) h6 {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 0.9rem;
+  margin-bottom: 0.45rem;
+}
+
+/* Equations: KaTeX draws them, the dialog edits them; the source is what the file keeps. */
+:is(.ProseMirror, .set-content) .math-inline {
+  border-radius: 4px;
+  padding-inline: 0.1em;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+:is(.ProseMirror, .set-content) .math-block {
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+:is(.ProseMirror, .set-content) .math-preview {
+  padding: 0.5rem 0.25rem;
+  text-align: center;
+  overflow-x: auto;
+}
+
+:is(.ProseMirror, .set-content) .katex-display {
+  margin: 0;
+}
+
+/* A wide equation scrolls rather than pushing the page out. */
+:is(.ProseMirror, .set-content) .katex-display > .katex {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.15em;
+}
+
+:is(.ProseMirror, .set-content) mark {
+  color: inherit;
+  background-color: color-mix(in oklch, var(--warning) 26%, transparent);
+  border-radius: 2px;
+  padding-inline: 0.1em;
+}
+
+:is(.ProseMirror, .set-content) .footnote-ref {
+  font-size: 0.75em;
+  color: var(--accent);
+  padding-inline: 0.1em;
+  cursor: pointer;
+}
+
+:is(.ProseMirror, .set-content) .footnote-definition {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875em;
+  color: var(--text-muted);
+}
+
+:is(.ProseMirror, .set-content) .footnote-label {
+  flex: none;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+:is(.ProseMirror, .set-content) .footnote-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * Same clothes as the child-page block, but the arrow leaves the sheet, the underline is dashed,
+ * and it stays inline.
+ */
+:is(.ProseMirror, .set-content) .wiki-link {
+  display: inline;
+  border-radius: var(--radius);
+  padding-inline: 0.15em;
+  margin-inline: -0.05em;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+:is(.ProseMirror, .set-content) .wiki-link:hover {
+  background-color: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+:is(.ProseMirror, .set-content) .wiki-link-icon {
+  display: inline-flex;
+  margin-inline-end: 0.25em;
+
+  /* Sits on the text's baseline rather than the line box's, so the sheet lines
+     up with the x-height of the title beside it at any font size. */
+  vertical-align: -0.075em;
+}
+
+:is(.ProseMirror, .set-content) .wiki-link-title {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: color-mix(in oklch, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+:is(.ProseMirror, .set-content) .callout {
+  --callout: var(--accent);
+  border-left: 3px solid var(--callout);
+  background-color: color-mix(in oklch, var(--callout) 7%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 0.5rem 0.85rem;
+}
+
+:is(.ProseMirror, .set-content) .callout[data-kind="tip"] {
+  --callout: var(--hl-string);
+}
+
+:is(.ProseMirror, .set-content) .callout[data-kind="important"] {
+  --callout: var(--hl-keyword);
+}
+
+:is(.ProseMirror, .set-content) .callout[data-kind="warning"] {
+  --callout: var(--warning);
+}
+
+:is(.ProseMirror, .set-content) .callout[data-kind="caution"] {
+  --callout: var(--danger);
+}
+
+:is(.ProseMirror, .set-content) .callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  margin-bottom: 0.25rem;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--callout);
+  cursor: pointer;
+  user-select: none;
+}
+
+:is(.ProseMirror, .set-content) .callout-icon {
+  display: inline-flex;
+}
+
+:is(.ProseMirror, .set-content) .callout-body > * + * {
+  margin-top: var(--block-gap);
+}
+
+:is(.ProseMirror, .set-content) .inline-image {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  border-radius: 4px;
+}
+
+/* Published only: what the editor gets from its node views or never shows. */
+.set-content a:is(.page-link, .wiki-link, .footnote-label),
+.set-content .footnote-ref a {
+  text-decoration: none;
+}
+.set-content .page-link {
+  width: fit-content;
+}
+.set-content :is(.date-mention, .math-inline, .math-block, .callout-header) {
+  cursor: default;
+}
+.set-content ul[data-type="taskList"] > li > label > input[type="checkbox"] {
+  cursor: default;
+}
+/* A tight list has no `<p>` in its items. */
+.set-content ul[data-type="taskList"] > li[data-checked="true"] > div {
+  color: var(--text-subtle);
+  text-decoration: line-through;
+}
+.set-content details > summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+.set-content details > summary::marker {
+  color: var(--text-subtle);
+}
+.set-content details > :not(summary) {
+  margin-top: var(--block-gap);
+  padding-left: var(--marker-gutter);
+}

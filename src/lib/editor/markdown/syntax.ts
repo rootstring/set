@@ -1,14 +1,13 @@
-import markPlugin from "markdown-it-mark";
-import { registerExtras } from "./syntax-extras";
 import {
   escapeAttr,
+  setDialect,
   wrapRule,
   type InlineRule,
   type BlockRule,
   type MarkdownIt,
   type StateCore,
   type Token,
-} from "./types";
+} from "@rootstring/set-markdown";
 
 /**
  * Parsing goes Markdown → HTML → schema, and the schema loses what it has no node for. So the
@@ -42,11 +41,10 @@ export function setSyntax(md: MarkdownIt): void {
   if (configured.has(md)) return;
   configured.add(md);
 
-  md.use(markPlugin as unknown as (md: MarkdownIt) => void);
-  configureLinkify(md);
+  // Before the dialect, so `set_callouts` runs ahead of `set_definitions` (both follow `block`).
   recordBreaks(md);
   recordReferences(md);
-  registerExtras(md);
+  setDialect(md);
   md.core.ruler.before("text_join", "set_markup", stampMarkup);
   md.core.ruler.after("set_markup", "set_spacers", injectSpacers);
 
@@ -81,6 +79,35 @@ export function setSyntax(md: MarkdownIt): void {
     `<div data-raw-block="" data-kind="definition">${escape(tokens[idx].content)}</div>`;
   // See `injectSpacers`.
   rules.set_spacer = () => "<p></p>";
+
+  // The dialect's tokens, as the HTML `Footnote.ts`, `WikiLink.ts` and `Math.ts` parse.
+  rules.math_block = (tokens, idx) => {
+    const form = tokens[idx].meta?.single ? ' data-md="single"' : "";
+    return `<div data-math-block=""${form}>${escape(tokens[idx].content)}</div>`;
+  };
+  rules.math_inline = (tokens, idx) => {
+    const display = tokens[idx].meta?.display ? ' data-display=""' : "";
+    return `<span data-math="${escapeAttr(tokens[idx].content)}"${display}></span>`;
+  };
+  rules.footnote_def = (tokens, idx) => {
+    const { label, space } = tokens[idx].meta as { label: string; space: string };
+    return (
+      `<div data-footnote="${escapeAttr(label)}" data-space="${escapeAttr(space)}">` +
+      `${escape(tokens[idx].content)}</div>`
+    );
+  };
+  rules.footnote_ref = (tokens, idx) => {
+    const { label } = tokens[idx].meta as { label: string };
+    return `<sup data-footnote-ref="${escapeAttr(label)}"></sup>`;
+  };
+  rules.wikilink = (tokens, idx) => {
+    const { target, alias } = tokens[idx].meta as {
+      target: string;
+      alias: string | null;
+    };
+    const aliasAttr = alias === null ? "" : ` data-alias="${escapeAttr(alias)}"`;
+    return `<span data-wikilink="${escapeAttr(target)}"${aliasAttr}></span>`;
+  };
 }
 
 /** Set's own HTML blocks go through the DOM; anything else is kept exactly. */
@@ -89,25 +116,6 @@ function isDomBlock(source: string): boolean {
   if (!tag) return false;
   if (DOM_BLOCK_TAGS.has(tag)) return true;
   return tag === "img" && /^\s*<img\b[^>]*>\s*$/i.test(source);
-}
-
-/** Only URLs that say they are; a fuzzy match turns every `README.md` into a link. */
-function configureLinkify(md: MarkdownIt): void {
-  md.set({ linkify: true });
-  md.linkify.set({ fuzzyLink: false });
-  md.linkify.add("www.", {
-    validate(text: string, pos: number, self: { re: Record<string, string | RegExp> }) {
-      self.re.set_www ??= new RegExp(
-        `^${self.re.src_host_port_strict as string}${self.re.src_path as string}`,
-        "i",
-      );
-      const match = (self.re.set_www as RegExp).exec(text.slice(pos));
-      return match ? match[0].length : 0;
-    },
-    normalize(match: { url: string }) {
-      match.url = `http://${match.url}`;
-    },
-  });
 }
 
 /** Which of the two hard-break spellings was used: trailing spaces or `\`. */

@@ -30,5 +30,10 @@ export default defineConfig(async () => ({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
+    // SvelteKit narrows Vite's allow list to src/ and node_modules/. The workspace packages are
+    // linked into node_modules but resolve to packages/, so their fonts need allowing there.
+    fs: {
+      allow: ["packages"],
+    },
   },
 }));

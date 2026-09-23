@@ -1,8 +1,9 @@
-@import "./styles/fonts.css";
-@import "./styles/tokens.css";
+@import "@rootstring/set-design/fonts.css";
+@import "@rootstring/set-design/tokens.css";
 @import "./styles/base.css";
 @import "./styles/controls.css";
 @import "./styles/popover.css";
 @import "./styles/settings.css";
 @import "./styles/onboarding.css";
+@import "@rootstring/set-design/content.css";
 @import "./styles/editor.css";
