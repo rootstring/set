@@ -9,12 +9,18 @@ import { storedBody } from "./db";
 
 /**
  * The wait is load bearing: a native caret move reaches ProseMirror on a later `selectionchange`.
+ * Chrome now and then drops a Home that lands a few milliseconds after a keystroke, so it is
+ * pressed again until the caret moves.
  */
 async function typeAtLineStart(page: Page, text: string) {
-  await page.keyboard.press("Home");
-  await expect
-    .poll(() => page.evaluate(() => window.getSelection()?.anchorOffset ?? -1))
-    .toBe(0);
+  await expect(async () => {
+    await page.keyboard.press("Home");
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.anchorOffset ?? -1), {
+        timeout: 1000,
+      })
+      .toBe(0);
+  }).toPass();
   await page.keyboard.type(text);
 }
 
