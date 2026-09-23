@@ -1,6 +1,6 @@
 {
   "name": "Set",
-  "version": "0.0.2",
+  "version": "0.0.3-rc.0",
   "description": "A dead-simple, local-first, block-based note taking app.",
   "private": true,
   "homepage": "https://writewithset.com",
