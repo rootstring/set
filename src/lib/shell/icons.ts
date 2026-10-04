@@ -8,6 +8,7 @@ export type IconName =
   | "close"
   | "code"
   | "context"
+  | "copy"
   | "date"
   | "divider"
   | "download"

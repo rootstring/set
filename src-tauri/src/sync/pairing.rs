@@ -126,6 +126,17 @@ pub enum Refused {
 
     /// The code was right and nobody answered the prompt in time.
     NoAnswer,
+
+    NotDiscoverable,
+
+    DeclinedNearby,
+
+    /// A step of pairing nearby that came too late, out of turn, or on another connection.
+    KnockExpired,
+
+    KnockMismatch,
+
+    Busy,
 }
 
 impl Refused {
@@ -137,6 +148,11 @@ impl Refused {
             Refused::Version { .. } => "version_mismatch",
             Refused::Declined => "declined",
             Refused::NoAnswer => "no_answer",
+            Refused::NotDiscoverable => "not_discoverable",
+            Refused::DeclinedNearby => "declined_nearby",
+            Refused::KnockExpired => "knock_expired",
+            Refused::KnockMismatch => "knock_mismatch",
+            Refused::Busy => "pairing_busy",
         }
     }
 }
@@ -169,8 +185,85 @@ impl std::fmt::Display for Refused {
                 f,
                 "nobody clicked Allow on the other device. Try again and answer the prompt there"
             ),
+            Refused::NotDiscoverable => write!(
+                f,
+                "the other device isn't discoverable. Turn on Discoverable in its Sync settings and try again"
+            ),
+            Refused::DeclinedNearby => write!(
+                f,
+                "the other device didn't allow it. You can ask again in a few minutes"
+            ),
+            Refused::KnockExpired => write!(f, "the pairing request ran out of time. Try again"),
+            Refused::KnockMismatch => write!(
+                f,
+                "the other device's answer didn't check out, so it wasn't paired. Try again"
+            ),
+            Refused::Busy => write!(
+                f,
+                "the other device is showing another pairing prompt. Try again in a moment"
+            ),
         }
     }
+}
+
+pub type Nonce = [u8; 32];
+
+pub fn nonce() -> Nonce {
+    rand::random()
+}
+
+/// Sent before the other device's nonce is seen, so the nonce can't be chosen to suit it.
+pub fn commit(nonce: &Nonce) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"set/sync/knock-commit");
+    hasher.update(nonce);
+    *hasher.finalize().as_bytes()
+}
+
+/// Neither device can choose its nonce after seeing the other's, so a device in the middle gets
+/// matching digits only by a one in a million chance.
+pub fn check_digits(
+    knocker: &EndpointId,
+    knocked: &EndpointId,
+    knocker_nonce: &Nonce,
+    knocked_nonce: &Nonce,
+) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"set/sync/check-digits");
+    hasher.update(knocker.as_bytes());
+    hasher.update(knocked.as_bytes());
+    hasher.update(knocker_nonce);
+    hasher.update(knocked_nonce);
+    let bytes = hasher.finalize();
+    let n = u64::from_le_bytes(bytes.as_bytes()[..8].try_into().expect("eight bytes")) % 1_000_000;
+    format!("{:03} {:03}", n / 1000, n % 1000)
+}
+
+const MAX_NAME: usize = 64;
+
+/// No control or invisible formatting characters, which could make it read as another name.
+pub fn device_name(given: &str, id: &EndpointId) -> String {
+    let shown: String = given
+        .chars()
+        .filter(|c| !c.is_control() && !invisible(*c))
+        .collect();
+    let shown: String = shown.trim().chars().take(MAX_NAME).collect();
+    match shown.trim_end() {
+        "" => format!("Device {}", &id.to_string()[..8]),
+        named => named.to_string(),
+    }
+}
+
+fn invisible(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}'
+        | '\u{061C}'
+        | '\u{180E}'
+        | '\u{200B}'..='\u{200F}'
+        | '\u{202A}'..='\u{202E}'
+        | '\u{2060}'..='\u{2069}'
+        | '\u{FEFF}'
+    )
 }
 
 pub fn may_claim(their_version: u32) -> Result<(), Refused> {
@@ -235,8 +328,160 @@ impl Throttle {
         failures.latest = now;
     }
 
+    /// So a stranger on the network can't keep a prompt on screen.
+    pub fn block(&mut self, peer: EndpointId, now: f64) {
+        self.failed(peer, now);
+        if let Some(failures) = self.0.get_mut(&peer) {
+            failures.count = failures.count.max(MAX_ATTEMPTS);
+        }
+    }
+
     pub fn succeeded(&mut self, peer: &EndpointId) {
         self.0.remove(peer);
+    }
+}
+
+const REVEAL_TIMEOUT: Duration = Duration::from_secs(30);
+
+const MAX_KNOCKS: usize = 8;
+
+/// Pairing nearby, from the device asked. Each device saves the other only once Allow is clicked
+/// on it, so it takes three requests on the knock's connection:
+///
+/// 1. `Knock` carries the knocker's commitment; this device answers with its own nonce.
+/// 2. `Reveal` carries the knocker's nonce. This device shows the check digits and asks, and
+///    answers `Allowed` once someone clicks Allow here.
+/// 3. `ConfirmKnock` comes once the digits are typed in on the knocker and Allow clicked there
+///    too. Only then does this device save it.
+#[derive(Default)]
+pub struct Knocks(HashMap<EndpointId, Knock>);
+
+struct Knock {
+    connection: usize,
+    at: f64,
+    name: String,
+    notes_id: Option<String>,
+    stage: Stage,
+}
+
+enum Stage {
+    Committed { commit: [u8; 32], nonce: Nonce },
+    Asking,
+    Allowed,
+}
+
+pub struct Revealed {
+    pub nonce: Nonce,
+    pub name: String,
+}
+
+impl Knocks {
+    pub fn knock(
+        &mut self,
+        peer: EndpointId,
+        connection: usize,
+        name: String,
+        notes_id: Option<String>,
+        commit: [u8; 32],
+        now: f64,
+    ) -> Nonce {
+        if self.0.len() >= MAX_KNOCKS && !self.0.contains_key(&peer) {
+            let oldest = self
+                .0
+                .iter()
+                .min_by(|a, b| a.1.at.total_cmp(&b.1.at))
+                .map(|(id, _)| *id);
+            if let Some(oldest) = oldest {
+                self.0.remove(&oldest);
+            }
+        }
+        let nonce = nonce();
+        self.0.insert(
+            peer,
+            Knock {
+                connection,
+                at: now,
+                name,
+                notes_id,
+                stage: Stage::Committed { commit, nonce },
+            },
+        );
+        nonce
+    }
+
+    pub fn reveal(
+        &mut self,
+        peer: &EndpointId,
+        connection: usize,
+        theirs: &Nonce,
+        now: f64,
+    ) -> Result<Revealed, Refused> {
+        let knock = self.current(peer, connection)?;
+        let Stage::Committed {
+            commit: committed,
+            nonce,
+        } = knock.stage
+        else {
+            return Err(Refused::KnockExpired);
+        };
+        if now - knock.at > REVEAL_TIMEOUT.as_millis() as f64 {
+            self.0.remove(peer);
+            return Err(Refused::KnockExpired);
+        }
+        if commit(theirs) != committed {
+            self.0.remove(peer);
+            return Err(Refused::KnockMismatch);
+        }
+        knock.stage = Stage::Asking;
+        Ok(Revealed {
+            nonce,
+            name: knock.name.clone(),
+        })
+    }
+
+    /// Refused if the knock was dropped while asking, so the knocker isn't told to confirm it.
+    pub fn allowed(
+        &mut self,
+        peer: &EndpointId,
+        connection: usize,
+        now: f64,
+    ) -> Result<(), Refused> {
+        let knock = self.current(peer, connection)?;
+        if !matches!(knock.stage, Stage::Asking) {
+            return Err(Refused::KnockExpired);
+        }
+        knock.stage = Stage::Allowed;
+        knock.at = now;
+        Ok(())
+    }
+
+    pub fn forget(&mut self, peer: &EndpointId) {
+        self.0.remove(peer);
+    }
+
+    pub fn confirm(
+        &mut self,
+        peer: &EndpointId,
+        connection: usize,
+        now: f64,
+    ) -> Result<(String, Option<String>), Refused> {
+        let knock = self.current(peer, connection)?;
+        if !matches!(knock.stage, Stage::Allowed) {
+            return Err(Refused::KnockExpired);
+        }
+        let late = now - knock.at > APPROVAL_TIMEOUT.as_millis() as f64;
+        let knock = self.0.remove(peer).expect("just found");
+        if late {
+            return Err(Refused::KnockExpired);
+        }
+        Ok((knock.name, knock.notes_id))
+    }
+
+    fn current(&mut self, peer: &EndpointId, connection: usize) -> Result<&mut Knock, Refused> {
+        match self.0.get_mut(peer) {
+            Some(knock) if knock.connection == connection => Ok(knock),
+            _ => Err(Refused::KnockExpired),
+        }
     }
 }
 
@@ -470,5 +715,154 @@ mod tests {
                 "a refusal the user can't act on is a dead end: {message}"
             );
         }
+    }
+
+    #[test]
+    fn check_digits_depend_on_both_nonces() {
+        let (a, b) = (peer(), peer());
+        let (na, nb) = (nonce(), nonce());
+        let digits = check_digits(&a, &b, &na, &nb);
+        assert_eq!(digits, check_digits(&a, &b, &na, &nb));
+        assert_eq!(digits.len(), 7);
+        assert_ne!(digits, check_digits(&a, &b, &na, &nonce()));
+        assert_ne!(digits, check_digits(&a, &b, &nonce(), &nb));
+    }
+
+    #[test]
+    fn a_name_is_cleaned_before_anyone_reads_it() {
+        let id = peer();
+        assert_eq!(device_name("  Laptop\n", &id), "Laptop");
+        assert_eq!(
+            device_name("Lap\u{202E}pot\u{200B}", &id),
+            "Lappot",
+            "no reordering or invisible characters"
+        );
+        assert_eq!(device_name(&"x".repeat(500), &id).chars().count(), MAX_NAME);
+        assert!(device_name("\u{200B} \t", &id).starts_with("Device "));
+    }
+
+    const CONN: usize = 7;
+
+    fn knocked(knocks: &mut Knocks, p: EndpointId) -> Nonce {
+        knocked_at(knocks, p, NOW)
+    }
+
+    fn knocked_at(knocks: &mut Knocks, p: EndpointId, at: f64) -> Nonce {
+        let mine = nonce();
+        knocks.knock(p, CONN, "Laptop".into(), None, commit(&mine), at);
+        mine
+    }
+
+    #[test]
+    fn a_knock_pairs_only_after_reveal_allow_and_confirm() {
+        let mut knocks = Knocks::default();
+        let p = peer();
+        let mine = knocked(&mut knocks, p);
+        assert_eq!(
+            knocks.confirm(&p, CONN, NOW).err(),
+            Some(Refused::KnockExpired),
+            "not before anyone allowed it"
+        );
+        assert!(knocks.reveal(&p, CONN, &mine, NOW + 1000.0).is_ok());
+        assert_eq!(
+            knocks.reveal(&p, CONN, &mine, NOW + 1000.0).err(),
+            Some(Refused::KnockExpired),
+            "revealed once"
+        );
+        assert_eq!(
+            knocks.confirm(&p, CONN, NOW).err(),
+            Some(Refused::KnockExpired),
+            "still asking"
+        );
+        knocks.allowed(&p, CONN, NOW + 2000.0).expect("allowed");
+        assert_eq!(
+            knocks.confirm(&p, CONN + 1, NOW + 3000.0).err(),
+            Some(Refused::KnockExpired),
+            "another connection"
+        );
+        assert_eq!(
+            knocks.confirm(&p, CONN, NOW + 3000.0),
+            Ok(("Laptop".to_string(), None))
+        );
+        assert!(knocks.confirm(&p, CONN, NOW + 3000.0).is_err(), "once");
+    }
+
+    #[test]
+    fn a_reveal_must_match_its_commitment_and_come_in_time() {
+        let mut knocks = Knocks::default();
+        let p = peer();
+        knocked(&mut knocks, p);
+        assert_eq!(
+            knocks.reveal(&p, CONN, &nonce(), NOW).err(),
+            Some(Refused::KnockMismatch)
+        );
+
+        let mine = knocked(&mut knocks, p);
+        let late = NOW + REVEAL_TIMEOUT.as_millis() as f64 + 1.0;
+        assert_eq!(
+            knocks.reveal(&p, CONN, &mine, late).err(),
+            Some(Refused::KnockExpired)
+        );
+    }
+
+    #[test]
+    fn a_confirm_after_the_approval_window_is_refused() {
+        let mut knocks = Knocks::default();
+        let p = peer();
+        let mine = knocked(&mut knocks, p);
+        knocks.reveal(&p, CONN, &mine, NOW).expect("reveal");
+        knocks.allowed(&p, CONN, NOW).expect("allowed");
+        let late = NOW + APPROVAL_TIMEOUT.as_millis() as f64 + 1.0;
+        assert_eq!(
+            knocks.confirm(&p, CONN, late).err(),
+            Some(Refused::KnockExpired)
+        );
+    }
+
+    #[test]
+    fn allowing_a_knock_that_was_dropped_is_refused() {
+        let mut knocks = Knocks::default();
+        let p = peer();
+        let mine = knocked(&mut knocks, p);
+        knocks.reveal(&p, CONN, &mine, NOW).expect("reveal");
+        // Knocked again on another connection while the first was being asked about.
+        knocks.knock(p, CONN + 1, "Laptop".into(), None, commit(&nonce()), NOW);
+        assert_eq!(
+            knocks.allowed(&p, CONN, NOW).err(),
+            Some(Refused::KnockExpired)
+        );
+        knocks.forget(&p);
+        assert_eq!(
+            knocks.allowed(&p, CONN, NOW).err(),
+            Some(Refused::KnockExpired),
+            "gone"
+        );
+    }
+
+    #[test]
+    fn knocks_stay_bounded() {
+        let mut knocks = Knocks::default();
+        let first = peer();
+        knocked_at(&mut knocks, first, NOW - 1.0);
+        for _ in 0..MAX_KNOCKS {
+            knocked(&mut knocks, peer());
+        }
+        assert_eq!(knocks.0.len(), MAX_KNOCKS);
+        assert!(!knocks.0.contains_key(&first), "the oldest made way");
+    }
+
+    #[test]
+    fn a_device_turned_down_waits_out_the_cooldown() {
+        let mut throttle = Throttle::default();
+        let p = peer();
+        throttle.block(p, NOW);
+        assert_eq!(
+            throttle.allows(&p, NOW + 1000.0),
+            Err(Refused::TooManyAttempts)
+        );
+        assert_eq!(
+            throttle.allows(&p, NOW + COOLDOWN.as_millis() as f64),
+            Ok(())
+        );
     }
 }

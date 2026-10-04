@@ -3,6 +3,7 @@ pub mod ids;
 pub mod log;
 pub mod manifest;
 pub mod merge;
+pub mod nearby;
 pub mod pairing;
 pub mod plan;
 pub mod preview;
@@ -22,6 +23,7 @@ use std::time::Duration;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointAddr, EndpointId};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -30,6 +32,8 @@ use state::Config;
 
 /// How long "Sync now" waits to reach a device before reporting it offline.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+const INTRODUCE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Both devices' round locks are held while a preview is up.
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -47,6 +51,10 @@ pub struct Status {
 
     pub pairing_code: Option<String>,
     pub peers: Vec<PeerStatus>,
+    pub discoverable: bool,
+    /// Milliseconds since the epoch.
+    pub searching_until: Option<f64>,
+    pub nearby: Vec<NearbyDevice>,
 
     pub last_error: Option<String>,
 }
@@ -57,6 +65,7 @@ pub struct PeerStatus {
     pub id: String,
     pub name: String,
     pub connected: bool,
+    pub nearby: bool,
 
     pub syncing: bool,
     pub last_synced_at: Option<f64>,
@@ -66,6 +75,14 @@ pub struct PeerStatus {
 
     /// Files the last round with this device wanted and couldn't carry.
     pub too_big: Vec<TooBigFile>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbyDevice {
+    pub id: String,
+    pub name: String,
+    pub compatible: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -110,6 +127,8 @@ struct Inner {
 
     notes_root: Mutex<Option<PathBuf>>,
     peers: Mutex<HashMap<EndpointId, Live>>,
+    nearby: Mutex<nearby::Nearby>,
+    knocks: Mutex<pairing::Knocks>,
     last_error: Mutex<Option<String>>,
 
     running: tokio::sync::Mutex<Option<Running>>,
@@ -123,7 +142,7 @@ struct Inner {
     approving: tokio::sync::Mutex<()>,
 
     /// The prompt on screen, if any, and where its answer goes.
-    approval: Mutex<Option<(u32, tokio::sync::oneshot::Sender<bool>)>>,
+    approval: Mutex<Option<(u32, tokio::sync::oneshot::Sender<Reply>)>>,
 
     /// The preview on screen, if any. One at most: a round is what shows it,
     /// and `round_lock` lets one round run at a time.
@@ -133,6 +152,13 @@ struct Inner {
 struct Running {
     endpoint: Endpoint,
     router: Router,
+    /// `None` where the network allows no multicast.
+    mdns: Option<Mdns>,
+}
+
+struct Mdns {
+    lookup: nearby::Lookup,
+    watch: tauri::async_runtime::JoinHandle<()>,
 }
 
 impl Sync {
@@ -152,6 +178,8 @@ impl Sync {
             config: Mutex::new(config),
             notes_root: Mutex::new(None),
             peers: Mutex::new(HashMap::new()),
+            nearby: Mutex::new(nearby::Nearby::default()),
+            knocks: Mutex::new(pairing::Knocks::default()),
             last_error: Mutex::new(error),
             running: tokio::sync::Mutex::new(None),
             round_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -180,6 +208,9 @@ impl Inner {
         let config = self.config();
         let code = self.pairing_code(endpoint);
         let live = self.peers.lock().expect("sync peers poisoned");
+        let nearby = self.nearby.lock().expect("sync nearby poisoned");
+        let now = now_ms();
+        let searching = nearby.searching(now);
         Status {
             enabled: config.enabled,
             running: endpoint.is_some(),
@@ -197,6 +228,7 @@ impl Inner {
                         id: d.id.to_string(),
                         name: d.name.clone(),
                         connected: l.is_some_and(|l| l.connected),
+                        nearby: nearby.contains(&d.id),
                         syncing: l.is_some_and(|l| l.syncing),
                         last_synced_at: l.and_then(|l| l.last_synced_at),
                         last_error: l.and_then(|l| l.last_error.clone()),
@@ -213,6 +245,23 @@ impl Inner {
                     }
                 })
                 .collect(),
+            discoverable: nearby.discoverable(now),
+            searching_until: searching.map(|s| s.until),
+            nearby: if searching.is_some() {
+                let mut devices: Vec<NearbyDevice> = nearby
+                    .introduced()
+                    .filter(|(id, _)| !config.is_paired(id))
+                    .map(|(id, intro)| NearbyDevice {
+                        id: id.to_string(),
+                        name: intro.name.clone(),
+                        compatible: intro.version == protocol::VERSION,
+                    })
+                    .collect();
+                devices.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+                devices
+            } else {
+                Vec::new()
+            },
             last_error: self.last_error.lock().expect("sync error poisoned").clone(),
         }
     }
@@ -267,6 +316,10 @@ impl Inner {
             .iter()
             .find(|d| d.id == *peer)
             .map(|d| d.name.clone())
+            .or_else(|| {
+                let nearby = self.nearby.lock().expect("sync nearby poisoned");
+                nearby.name(peer).map(str::to_string)
+            })
             .unwrap_or_else(|| format!("device {}", &peer.to_string()[..8]))
     }
 }
@@ -279,12 +332,14 @@ impl Inner {
         }
         let config = self.config();
 
-        let endpoint = match Endpoint::builder(iroh::endpoint::presets::N0)
+        let mdns = nearby::Lookup::new(config.endpoint_id(), self.announcing());
+        let mut builder = Endpoint::builder(iroh::endpoint::presets::N0)
             .secret_key(config.secret_key.clone())
-            .alpns(vec![protocol::ALPN.to_vec()])
-            .bind()
-            .await
-        {
+            .alpns(vec![protocol::ALPN.to_vec()]);
+        if let Some(mdns) = &mdns {
+            builder = builder.address_lookup(mdns.clone());
+        }
+        let endpoint = match builder.bind().await {
             Ok(endpoint) => endpoint,
             Err(e) => {
                 let msg = format!("starting sync: {e}");
@@ -297,7 +352,16 @@ impl Inner {
             .accept(protocol::ALPN, Handler(Arc::downgrade(self)))
             .spawn();
 
-        *running = Some(Running { endpoint, router });
+        let mdns = mdns.map(|lookup| Mdns {
+            watch: self.watch(lookup.mdns()),
+            lookup,
+        });
+
+        *running = Some(Running {
+            endpoint,
+            router,
+            mdns,
+        });
         drop(running);
 
         // A round cut off by a crash left files staged under hidden names.
@@ -323,14 +387,66 @@ impl Inner {
         let taken = self.running.lock().await.take();
         let was_running = taken.is_some();
         if let Some(running) = taken {
+            if let Some(mdns) = running.mdns {
+                mdns.watch.abort();
+            }
             let _ = running.router.shutdown().await;
             running.endpoint.close().await;
         }
         self.peers.lock().expect("sync peers poisoned").clear();
+        self.nearby.lock().expect("sync nearby poisoned").reset();
+        *self.knocks.lock().expect("sync knocks poisoned") = pairing::Knocks::default();
         if was_running {
             log::info("sync.stopped").emit();
         }
         self.broadcast().await;
+    }
+
+    fn watch(self: &Arc<Self>, mdns: MdnsAddressLookup) -> tauri::async_runtime::JoinHandle<()> {
+        let weak = Arc::downgrade(self);
+        tauri::async_runtime::spawn(nearby::watch(mdns, move |event| {
+            let Some(inner) = weak.upgrade() else { return };
+            let config = inner.config();
+            let shown = inner
+                .nearby
+                .lock()
+                .expect("sync nearby poisoned")
+                .apply(event, |id| config.is_paired(id));
+            if shown {
+                tauri::async_runtime::spawn(async move { inner.broadcast().await });
+            }
+        }))
+    }
+
+    /// Only when someone could want to find this device: anyone on the network sees the
+    /// announcement, and its endpoint id never changes.
+    fn announcing(&self) -> bool {
+        let now = now_ms();
+        let nearby = self.nearby.lock().expect("sync nearby poisoned");
+        !self.config().paired.is_empty()
+            || nearby.discoverable(now)
+            || nearby.searching(now).is_some()
+    }
+
+    /// The endpoint stays up, so nothing in progress is cut off.
+    async fn announce(self: &Arc<Self>) -> Result<(), String> {
+        let mut running = self.running.lock().await;
+        let running = running
+            .as_mut()
+            .ok_or_else(|| "turn on sync first".to_string())?;
+        let Some(mdns) = running.mdns.as_mut() else {
+            return Ok(());
+        };
+        if let Some(swapped) = mdns.lookup.advertise(self.announcing()) {
+            mdns.watch.abort();
+            // The old mDNS can no longer say who left, and the new one hears everyone again.
+            self.nearby
+                .lock()
+                .expect("sync nearby poisoned")
+                .forget_devices();
+            mdns.watch = self.watch(swapped);
+        }
+        Ok(())
     }
 
     async fn restart(self: &Arc<Self>) -> Result<(), String> {
@@ -391,6 +507,129 @@ impl Inner {
             }
         });
         self.broadcast().await;
+    }
+
+    async fn introduce(self: &Arc<Self>, endpoint: &Endpoint, peer: EndpointId) {
+        if self.config().is_paired(&peer) {
+            return;
+        }
+        let asked = tokio::time::timeout(INTRODUCE_TIMEOUT, async {
+            let connection = endpoint
+                .connect(EndpointAddr::new(peer), protocol::ALPN)
+                .await
+                .map_err(|e| e.to_string())?;
+            let reply = session::request_small(&connection, &Request::Introduce).await;
+            connection.close(0u32.into(), b"introduced");
+            reply
+        })
+        .await;
+        let heard = match asked {
+            Ok(Ok(Response::Introduced {
+                version,
+                device_name,
+            })) => Some(nearby::Introduction {
+                name: pairing::device_name(&device_name, &peer),
+                version,
+            }),
+            // Refused, or an older Set that doesn't know the question: not discoverable.
+            Ok(Ok(_)) => None,
+            _ => return,
+        };
+        let changed = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .heard(&peer, heard);
+        if changed {
+            self.broadcast().await;
+        }
+    }
+
+    /// Asks every device each time round, so one made discoverable meanwhile turns up and one no
+    /// longer discoverable drops off.
+    async fn search(self: &Arc<Self>) -> Result<(), String> {
+        let endpoint = self.endpoint().await?;
+        let search = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .search(now_ms());
+        self.announce().await?;
+        log::info("nearby.searching").emit();
+        self.broadcast().await;
+
+        let inner = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                let Some(inner) = inner.upgrade() else { return };
+                let (still, devices) = {
+                    let nearby = inner.nearby.lock().expect("sync nearby poisoned");
+                    let still = nearby.searching(now_ms()).map(|s| s.id) == Some(search.id);
+                    (still, nearby.devices())
+                };
+                if !still {
+                    inner.stop_search(Some(search.id)).await;
+                    return;
+                }
+                let mut asking = tokio::task::JoinSet::new();
+                for peer in devices {
+                    let inner = inner.clone();
+                    let endpoint = endpoint.clone();
+                    asking.spawn(async move { inner.introduce(&endpoint, peer).await });
+                }
+                drop(inner);
+                asking.join_all().await;
+                tokio::time::sleep(nearby::SEARCH_EVERY).await;
+            }
+        });
+        Ok(())
+    }
+
+    async fn stop_search(self: &Arc<Self>, id: Option<u64>) {
+        let stopped = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .stop_search(id);
+        if stopped {
+            let _ = self.announce().await;
+            self.broadcast().await;
+        }
+    }
+
+    async fn discover(self: &Arc<Self>) -> Result<(), String> {
+        self.endpoint().await?;
+        let window = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .discover(now_ms());
+        self.announce().await?;
+        log::info("nearby.discoverable").emit();
+        self.broadcast().await;
+
+        let inner = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(nearby::DISCOVERABLE_WINDOW).await;
+            if let Some(inner) = inner.upgrade() {
+                inner.hide(Some(window.id)).await;
+            }
+        });
+        Ok(())
+    }
+
+    async fn close_nearby(self: &Arc<Self>) {
+        self.hide(None).await;
+        self.stop_search(None).await;
+    }
+
+    async fn hide(self: &Arc<Self>, id: Option<u64>) {
+        let hidden = self.nearby.lock().expect("sync nearby poisoned").hide(id);
+        if hidden {
+            log::info("nearby.hidden").emit();
+            let _ = self.announce().await;
+            self.broadcast().await;
+        }
     }
 
     /// Dials a paired device and redeems its pairing claim if one is pending.
@@ -481,18 +720,7 @@ impl Inner {
                     .emit();
                 None
             }
-            Ok(Response::Refused { code, message }) => Some((code, message)),
-
-            Ok(Response::Error(e)) => Some(("peer_error".to_string(), e)),
-
-            Ok(ref other) => Some((
-                "unexpected_reply".to_string(),
-                format!(
-                    "the other device didn't understand this pairing request. The two are \
-                     probably running different versions of Set. Reply was {other:?}"
-                ),
-            )),
-
+            Ok(other) => Some(refusal(other)),
             Err(_) => return Ok(()),
         };
         let Some((reason, error)) = outcome else {
@@ -851,6 +1079,29 @@ impl Inner {
                 )
                 .await;
         }
+        match &request {
+            Request::Introduce => return self.introduce_self(peer),
+            Request::Knock {
+                version,
+                device_name,
+                notes_id,
+                commit,
+            } => {
+                return self
+                    .knocked(
+                        peer,
+                        connection,
+                        *version,
+                        device_name,
+                        notes_id.as_deref(),
+                        commit,
+                    )
+                    .await
+            }
+            Request::Reveal { nonce } => return self.revealed(peer, connection, nonce).await,
+            Request::ConfirmKnock => return self.confirmed(peer, connection).await,
+            _ => {}
+        }
 
         let paired = self.config().is_paired(&peer);
         if !paired {
@@ -908,25 +1159,336 @@ impl Inner {
             return self.refuse(peer, refused).await;
         }
 
-        let name = match device_name.trim() {
-            "" => format!("Device {}", &peer.to_string()[..8]),
-            named => named.to_string(),
-        };
+        let name = pairing::device_name(device_name, &peer);
 
         // Whoever went first may have used the code up; check again once it is our turn.
         let _turn = self.approving.lock().await;
         if !self.config().pairing_secret.same_as(secret) {
             return self.refuse(peer, pairing::Refused::Wrong).await;
         }
-        match self.ask(connection, &name).await {
-            Some(true) => {}
-            Some(false) => {
+        match self.ask(connection, &name, Prompt::Code).await {
+            Some(Answer::Allowed) => {}
+            Some(_) => {
                 self.use_up_code();
                 return self.refuse(peer, pairing::Refused::Declined).await;
             }
             None => return self.refuse(peer, pairing::Refused::NoAnswer).await,
         }
+        self.admit(peer, name, notes_id, now, true).await
+    }
 
+    /// Asked every few seconds by every searching device, so refused without a log line.
+    fn open_to(&self, peer: &EndpointId) -> Result<(), Response> {
+        let open = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .open_to(peer, now_ms());
+        if open {
+            return Ok(());
+        }
+        Err(Response::Refused {
+            code: pairing::Refused::NotDiscoverable.code().to_string(),
+            message: pairing::Refused::NotDiscoverable.to_string(),
+        })
+    }
+
+    fn introduce_self(&self, peer: EndpointId) -> Response {
+        if let Err(refused) = self.open_to(&peer) {
+            return refused;
+        }
+        Response::Introduced {
+            version: protocol::VERSION,
+            device_name: self.config().device_name,
+        }
+    }
+
+    async fn knocked(
+        self: &Arc<Self>,
+        peer: EndpointId,
+        connection: &Connection,
+        version: u32,
+        device_name: &str,
+        notes_id: Option<&str>,
+        commit: &[u8; 32],
+    ) -> Response {
+        // A device already paired here still takes every step: its `Paired` may have been lost,
+        // and it must not skip its own prompt on our word (`admit` doesn't save it twice).
+        if let Err(refused) = self.open_to(&peer) {
+            return refused;
+        }
+        if let Err(refused) = pairing::may_claim(version) {
+            return self.refuse(peer, refused).await;
+        }
+        let now = now_ms();
+        let allowed = self
+            .throttle
+            .lock()
+            .expect("pairing throttle poisoned")
+            .allows(&peer, now);
+        if let Err(refused) = allowed {
+            return self.refuse(peer, refused).await;
+        }
+        if let Err(refused) = self.joining(peer, notes_id) {
+            return self.refuse(peer, refused).await;
+        }
+        let nonce = self.knocks.lock().expect("sync knocks poisoned").knock(
+            peer,
+            connection.stable_id(),
+            pairing::device_name(device_name, &peer),
+            notes_id.map(str::to_string),
+            *commit,
+            now,
+        );
+        Response::Knocked { nonce }
+    }
+
+    async fn revealed(
+        self: &Arc<Self>,
+        peer: EndpointId,
+        connection: &Connection,
+        theirs: &pairing::Nonce,
+    ) -> Response {
+        if let Err(refused) = self.open_to(&peer) {
+            return refused;
+        }
+        let revealed = self.knocks.lock().expect("sync knocks poisoned").reveal(
+            &peer,
+            connection.stable_id(),
+            theirs,
+            now_ms(),
+        );
+        let revealed = match revealed {
+            Ok(revealed) => revealed,
+            Err(refused) => return self.refuse(peer, refused).await,
+        };
+        let me = self.config().endpoint_id();
+        let digits = pairing::check_digits(&peer, &me, theirs, &revealed.nonce);
+
+        // Not waiting for a turn: two devices knocking on each other would each wait on the other.
+        let Ok(_turn) = self.approving.try_lock() else {
+            self.knocks
+                .lock()
+                .expect("sync knocks poisoned")
+                .forget(&peer);
+            return self.refuse(peer, pairing::Refused::Busy).await;
+        };
+        let prompt = Prompt::Nearby {
+            digits: &digits,
+            asking: false,
+        };
+        let answer = self.ask(connection, &revealed.name, prompt).await;
+        if answer == Some(Answer::Allowed) {
+            let allowed = self.knocks.lock().expect("sync knocks poisoned").allowed(
+                &peer,
+                connection.stable_id(),
+                now_ms(),
+            );
+            return match allowed {
+                Ok(()) => Response::Allowed,
+                Err(refused) => self.refuse(peer, refused).await,
+            };
+        }
+
+        self.knocks
+            .lock()
+            .expect("sync knocks poisoned")
+            .forget(&peer);
+        let refused = {
+            let mut throttle = self.throttle.lock().expect("pairing throttle poisoned");
+            match answer {
+                Some(_) => {
+                    throttle.block(peer, now_ms());
+                    pairing::Refused::DeclinedNearby
+                }
+                None => {
+                    throttle.failed(peer, now_ms());
+                    pairing::Refused::NoAnswer
+                }
+            }
+        };
+        // Ids cost nothing, so a stranger turned down would just knock again as someone else.
+        // Hiding means one prompt per press of Pair nearby.
+        self.hide(None).await;
+        self.refuse(peer, refused).await
+    }
+
+    async fn confirmed(self: &Arc<Self>, peer: EndpointId, connection: &Connection) -> Response {
+        let confirmed = self.knocks.lock().expect("sync knocks poisoned").confirm(
+            &peer,
+            connection.stable_id(),
+            now_ms(),
+        );
+        match confirmed {
+            Ok((name, notes_id)) => {
+                self.admit(peer, name, notes_id.as_deref(), now_ms(), false)
+                    .await
+            }
+            Err(refused) => self.refuse(peer, refused).await,
+        }
+    }
+
+    async fn pair_nearby(self: &Arc<Self>, peer: EndpointId) -> Result<(), String> {
+        if self.config().is_paired(&peer) {
+            return Err("that device is already paired".to_string());
+        }
+        let name = self
+            .nearby
+            .lock()
+            .expect("sync nearby poisoned")
+            .name(&peer)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                "that device isn't on the list anymore. Click Find nearby devices again".to_string()
+            })?;
+        let endpoint = self.endpoint().await?;
+        let Ok(_turn) = self.approving.try_lock() else {
+            return Err("answer the pairing prompt that's already open first".to_string());
+        };
+
+        let connection = match tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            endpoint.connect(EndpointAddr::new(peer), protocol::ALPN),
+        )
+        .await
+        {
+            Ok(Ok(connection)) => connection,
+            Ok(Err(e)) => return Err(format!("couldn't reach {name}: {e}")),
+            Err(_) => return Err(format!("couldn't reach {name}. Is Set open on it?")),
+        };
+        let knocked = self.knock(&connection, peer, &name).await;
+        connection.close(0u32.into(), b"paired");
+
+        let notes_id = match knocked {
+            Ok(notes_id) => notes_id,
+            Err((code, message)) => {
+                log::error("pair.rejected")
+                    .peer(peer, &name)
+                    .field("by", "nearby")
+                    .field("reason", &code)
+                    .field("error", &message)
+                    .emit();
+                return Err(message);
+            }
+        };
+        {
+            let mut config = self.config.lock().expect("sync config poisoned");
+            if !config.is_paired(&peer) {
+                // Only once saved: unsaved, a retry would be turned away as already paired.
+                let mut saved = config.clone();
+                saved.paired.push(state::PairedDevice {
+                    id: peer,
+                    name: name.clone(),
+                    paired_at: now_ms(),
+                    addrs: std::collections::BTreeSet::new(),
+                    claim: None,
+                });
+                state::save(&saved)?;
+                *config = saved;
+            }
+        }
+        self.close_nearby().await;
+        let _ = self.announce().await;
+        let joined = self.join_notes(notes_id.clone());
+        log::info("pair.confirmed")
+            .peer(peer, &name)
+            .field("by", "nearby")
+            .field("notes", &notes_id)
+            .field("joined", joined)
+            .emit();
+        self.broadcast().await;
+        Ok(())
+    }
+
+    async fn knock(
+        &self,
+        connection: &Connection,
+        peer: EndpointId,
+        name: &str,
+    ) -> Result<String, (String, String)> {
+        let unreachable = |e: String| ("unreachable".to_string(), e);
+        let config = self.config();
+        let mine = pairing::nonce();
+        let knock = Request::Knock {
+            version: protocol::VERSION,
+            device_name: config.device_name.clone(),
+            notes_id: (!config.paired.is_empty()).then(|| config.notes_id.clone()),
+            commit: pairing::commit(&mine),
+        };
+        let theirs = match session::request_small(connection, &knock).await {
+            Ok(Response::Knocked { nonce }) => nonce,
+            Ok(other) => return Err(refusal(other)),
+            Err(e) => return Err(unreachable(e)),
+        };
+        let digits = pairing::check_digits(&config.endpoint_id(), &peer, &mine, &theirs);
+
+        // Both prompts are up at once, so the digits can be read off one and typed into the other.
+        // Either device turning it down hangs up, which takes the other prompt down too.
+        let there = async {
+            let reply = session::request_small(connection, &Request::Reveal { nonce: mine }).await;
+            if !matches!(reply, Ok(Response::Allowed)) {
+                connection.close(0u32.into(), b"refused");
+            }
+            reply
+        };
+        let here = async {
+            let prompt = Prompt::Nearby {
+                digits: &digits,
+                asking: true,
+            };
+            let answer = self.ask(connection, name, prompt).await;
+            if answer != Some(Answer::Allowed) {
+                connection.close(0u32.into(), b"declined");
+            }
+            answer
+        };
+        let (there, here) = tokio::join!(there, here);
+        match here {
+            Some(Answer::Declined) => {
+                return Err((
+                    "declined_here".to_string(),
+                    "you didn't allow it, so the devices weren't paired".to_string(),
+                ))
+            }
+            Some(Answer::Mistyped) => {
+                return Err((
+                    "digits_mismatch".to_string(),
+                    format!(
+                        "that isn't the number on {name}, so the devices weren't paired. If you \
+                         typed it right, another device may be posing as it"
+                    ),
+                ))
+            }
+            _ => {}
+        }
+        match there {
+            Ok(Response::Allowed) => {}
+            Ok(other) => return Err(refusal(other)),
+            Err(e) => return Err(unreachable(e)),
+        }
+        if here.is_none() {
+            return Err((
+                pairing::Refused::NoAnswer.code().to_string(),
+                "nobody clicked Allow on this device in time".to_string(),
+            ));
+        }
+
+        match session::request_small(connection, &Request::ConfirmKnock).await {
+            Ok(Response::Paired { notes_id }) => Ok(notes_id),
+            Ok(other) => Err(refusal(other)),
+            Err(e) => Err(unreachable(e)),
+        }
+    }
+
+    /// Pairing by code (`rotate`) spends the code.
+    async fn admit(
+        self: &Arc<Self>,
+        peer: EndpointId,
+        name: String,
+        notes_id: Option<&str>,
+        now: f64,
+        rotate: bool,
+    ) -> Response {
         let joined = match self.joining(peer, notes_id) {
             Ok(joined) => joined,
             Err(refused) => return self.refuse(peer, refused).await,
@@ -943,11 +1505,15 @@ impl Inner {
         let moved_notes = {
             let mut config = self.config.lock().expect("sync config poisoned");
             let moved_notes = config.notes_id != joined;
-            config.paired.push(device.clone());
+            // Paired once already, but the other device never heard back.
+            if !config.is_paired(&peer) {
+                config.paired.push(device.clone());
+            }
 
             config.notes_id = joined.clone();
-            // A code pairs one device.
-            config.pairing_secret = pairing::Secret::generate();
+            if rotate {
+                config.pairing_secret = pairing::Secret::generate();
+            }
             if let Err(e) = state::save(&config) {
                 return Response::Error(e);
             }
@@ -959,12 +1525,18 @@ impl Inner {
             .succeeded(&peer);
         log::info("pair.accepted")
             .peer(peer, &name)
+            .field("by", if rotate { "code" } else { "nearby" })
             .field("notes", &joined)
             .field("moved_notes", moved_notes)
             .emit();
-        let _ = self
-            .app
-            .emit("sync:paired", serde_json::json!({ "name": name }));
+        let _ = self.app.emit(
+            "sync:paired",
+            serde_json::json!({ "name": name, "byCode": rotate }),
+        );
+        if !rotate {
+            self.close_nearby().await;
+        }
+        let _ = self.announce().await;
         self.broadcast().await;
 
         Response::Paired { notes_id: joined }
@@ -981,13 +1553,34 @@ impl Inner {
     }
 
     /// `None` when nobody answered in time or the peer hung up.
-    async fn ask(&self, connection: &Connection, name: &str) -> Option<bool> {
+    async fn ask(&self, connection: &Connection, name: &str, prompt: Prompt<'_>) -> Option<Answer> {
         let id: u32 = rand::random();
         let (answer, answered) = tokio::sync::oneshot::channel();
         *self.approval.lock().expect("sync approval poisoned") = Some((id, answer));
         let _ = self.app.emit(
             "sync:pair-request",
-            serde_json::json!({ "id": id, "name": name }),
+            match prompt {
+                Prompt::Code => serde_json::json!({ "id": id, "name": name }),
+                // Not the digits: the person has to read them off the other device.
+                Prompt::Nearby {
+                    asking: true,
+                    digits,
+                } => serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "asking": true,
+                    "digitCount": digits.chars().filter(char::is_ascii_digit).count(),
+                }),
+                Prompt::Nearby {
+                    asking: false,
+                    digits,
+                } => serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "checkDigits": digits,
+                    "asking": false,
+                }),
+            },
         );
 
         let outcome = tokio::select! {
@@ -996,6 +1589,7 @@ impl Inner {
             }
             _ = connection.closed() => None,
         };
+        let outcome = outcome.map(|reply| prompt.answer(reply));
 
         let _ = self
             .approval
@@ -1037,6 +1631,53 @@ impl Inner {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Prompt<'a> {
+    Code,
+    /// The picker (`asking`) types the check digits in rather than being shown them, so nobody can
+    /// allow it without comparing.
+    Nearby {
+        digits: &'a str,
+        asking: bool,
+    },
+}
+
+struct Reply {
+    allow: bool,
+    digits: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    Allowed,
+    Declined,
+    Mistyped,
+}
+
+impl Prompt<'_> {
+    fn answer(self, reply: Reply) -> Answer {
+        if !reply.allow {
+            return Answer::Declined;
+        }
+        match self {
+            Prompt::Nearby {
+                digits,
+                asking: true,
+            } => {
+                let only_digits =
+                    |s: &str| s.chars().filter(char::is_ascii_digit).collect::<String>();
+                let typed = reply.digits.as_deref().map(only_digits);
+                if typed.is_some_and(|typed| typed == only_digits(digits)) {
+                    Answer::Allowed
+                } else {
+                    Answer::Mistyped
+                }
+            }
+            _ => Answer::Allowed,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Handler(Weak<Inner>);
 
@@ -1053,6 +1694,21 @@ impl ProtocolHandler for Handler {
         inner.mark(peer, |l| l.connected = false);
         inner.broadcast().await;
         Ok(())
+    }
+}
+
+/// `(code, message)`
+fn refusal(reply: Response) -> (String, String) {
+    match reply {
+        Response::Refused { code, message } => (code, message),
+        Response::Error(e) => ("peer_error".to_string(), e),
+        other => (
+            "unexpected_reply".to_string(),
+            format!(
+                "the other device didn't understand this pairing request. The two are probably \
+                 running different versions of Set. Reply was {other:?}"
+            ),
+        ),
     }
 }
 
@@ -1143,7 +1799,12 @@ pub async fn sync_regenerate_pairing_code(sync: tauri::State<'_, Sync>) -> Resul
 
 /// An id that timed out or was answered is ignored.
 #[tauri::command]
-pub fn sync_answer_pair(sync: tauri::State<'_, Sync>, id: u32, allow: bool) {
+pub fn sync_answer_pair(
+    sync: tauri::State<'_, Sync>,
+    id: u32,
+    allow: bool,
+    digits: Option<String>,
+) {
     let pending = sync
         .engine()
         .approval
@@ -1151,7 +1812,7 @@ pub fn sync_answer_pair(sync: tauri::State<'_, Sync>, id: u32, allow: bool) {
         .expect("sync approval poisoned")
         .take_if(|(pending, _)| *pending == id);
     if let Some((_, answer)) = pending {
-        let _ = answer.send(allow);
+        let _ = answer.send(Reply { allow, digits });
     }
 }
 
@@ -1195,6 +1856,7 @@ pub async fn sync_pair(sync: tauri::State<'_, Sync>, code: String) -> Result<Sta
     // Nothing is synced until "Sync now".
     if inner.config().enabled {
         inner.start().await?;
+        inner.announce().await?;
         let endpoint = inner.endpoint().await?;
         let device = inner.config().paired.into_iter().find(|d| d.id == id);
         if let Some(device) = device {
@@ -1211,6 +1873,7 @@ pub async fn sync_pair(sync: tauri::State<'_, Sync>, code: String) -> Result<Sta
                         drop(config);
                         inner.peers.lock().expect("sync peers poisoned").remove(&id);
                     }
+                    let _ = inner.announce().await;
                     inner.broadcast().await;
                     return Err(refused);
                 }
@@ -1218,6 +1881,38 @@ pub async fn sync_pair(sync: tauri::State<'_, Sync>, code: String) -> Result<Sta
         }
     }
     inner.broadcast().await;
+    sync_status(sync).await
+}
+
+#[tauri::command]
+pub async fn sync_search_nearby(sync: tauri::State<'_, Sync>, on: bool) -> Result<Status, String> {
+    let inner = sync.engine().clone();
+    if on {
+        inner.search().await?;
+    } else {
+        inner.stop_search(None).await;
+    }
+    sync_status(sync).await
+}
+
+#[tauri::command]
+pub async fn sync_set_discoverable(
+    sync: tauri::State<'_, Sync>,
+    on: bool,
+) -> Result<Status, String> {
+    let inner = sync.engine().clone();
+    if on {
+        inner.discover().await?;
+    } else {
+        inner.hide(None).await;
+    }
+    sync_status(sync).await
+}
+
+#[tauri::command]
+pub async fn sync_pair_nearby(sync: tauri::State<'_, Sync>, id: String) -> Result<Status, String> {
+    let peer: EndpointId = id.parse().map_err(|e| format!("not a device id: {e}"))?;
+    sync.engine().clone().pair_nearby(peer).await?;
     sync_status(sync).await
 }
 
@@ -1241,6 +1936,7 @@ pub async fn sync_unpair(sync: tauri::State<'_, Sync>, id: String) -> Result<Sta
         .lock()
         .expect("sync peers poisoned")
         .remove(&peer);
+    let _ = inner.announce().await;
     inner.broadcast().await;
     sync_status(sync).await
 }
@@ -1311,4 +2007,39 @@ pub fn sync_log_read() -> Vec<serde_json::Value> {
 #[tauri::command]
 pub fn sync_log_clear() -> Result<(), String> {
     log::clear()
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    fn reply(allow: bool, digits: Option<&str>) -> Reply {
+        Reply {
+            allow,
+            digits: digits.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn the_device_that_picked_must_type_the_digits() {
+        let asking = Prompt::Nearby {
+            digits: "123 456",
+            asking: true,
+        };
+        assert_eq!(asking.answer(reply(true, Some("123456"))), Answer::Allowed);
+        assert_eq!(
+            asking.answer(reply(true, Some(" 123-456 "))),
+            Answer::Allowed
+        );
+        assert_eq!(asking.answer(reply(true, Some("123457"))), Answer::Mistyped);
+        assert_eq!(
+            asking.answer(reply(true, None)),
+            Answer::Mistyped,
+            "just Allow"
+        );
+        assert_eq!(
+            asking.answer(reply(false, Some("123456"))),
+            Answer::Declined
+        );
+    }
 }

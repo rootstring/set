@@ -4,5 +4,11 @@
   <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Set uses the microphone for dictation. Your voice is transcribed on this Mac and never leaves it.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Set finds your paired devices on this network so it can sync with them directly.</string>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_set-sync._udp</string>
+    </array>
   </dict>
 </plist>

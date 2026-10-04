@@ -75,15 +75,23 @@
     confirms.ask({
       anchor: null,
       title: "Pair with this device?",
-      message:
-        `“${request.name}” wants to pair, which gives it all your notes. ` +
-        `Allow it only if you just pasted this device's code there.`,
+      message: request.asking
+        ? `Pairing with “${request.name}” gives it all your notes. Type the number it shows.`
+        : !request.checkDigits
+          ? `“${request.name}” wants to pair, which gives it all your notes. ` +
+            `Allow it only if you just pasted this device's code there.`
+          : `“${request.name}” found this device nearby and wants to pair, which gives it all ` +
+            `your notes. Allow it only if you're pairing it, then type ${request.checkDigits} ` +
+            `on it.`,
+      entry: request.asking
+        ? { label: `The number on ${request.name}`, digits: request.digitCount ?? 6 }
+        : undefined,
       confirmLabel: "Allow",
       cancelLabel: "Don't allow",
       danger: false,
       remember: false,
       permanent: false,
-      onConfirm: () => void sync.answerPair(true),
+      onConfirm: (_asked, entered) => void sync.answerPair(true, entered),
       onCancel: () => void sync.answerPair(false),
       onDismiss: () => void sync.answerPair(false),
     });

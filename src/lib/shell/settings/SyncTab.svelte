@@ -1,6 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { settings } from "$lib/state/settings.svelte";
-  import { sync, type SyncPeer, type TooBigFile } from "$lib/state/sync.svelte";
+  import {
+    sync,
+    type NearbyDevice,
+    type SyncPeer,
+    type TooBigFile,
+  } from "$lib/state/sync.svelte";
   import {
     buildDiagnosticReport,
     describe,
@@ -9,6 +15,8 @@
   } from "$lib/state/sync-log";
   import { workspace } from "$lib/state/workspace.svelte";
   import Button from "../Button.svelte";
+  import Icon from "../Icon.svelte";
+  import Field from "./Field.svelte";
   import Segmented from "./Segmented.svelte";
   import SyncPreview from "./SyncPreview.svelte";
   import { message } from "$lib/utils/error";
@@ -86,6 +94,46 @@
       ctx.flash(`Couldn't pair: ${message(e)}`, "warn");
     } finally {
       pairing = false;
+    }
+  }
+
+  // Discoverable and searching last as long as this page is open, as with Bluetooth settings.
+  onDestroy(() => {
+    void sync.leaveNearby();
+  });
+
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!sync.status.searchingUntil) return;
+    const timer = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+  const searching = $derived(
+    sync.status.searchingUntil !== null && now < sync.status.searchingUntil,
+  );
+  const nearbyOpen = $derived(searching || sync.status.discoverable);
+
+  async function openNearby(): Promise<void> {
+    now = Date.now();
+    try {
+      await sync.openNearby();
+    } catch (e) {
+      void sync.leaveNearby();
+      ctx.flash(`Couldn't look for devices: ${message(e)}`, "warn");
+    }
+  }
+
+  let knocking = $state<NearbyDevice | null>(null);
+
+  async function pairNearby(device: NearbyDevice): Promise<void> {
+    knocking = device;
+    try {
+      await sync.pairNearby(device.id);
+      ctx.flash(`Paired with ${device.name}`);
+    } catch (e) {
+      ctx.flash(`Couldn't pair: ${message(e)}`, "warn");
+    } finally {
+      knocking = null;
     }
   }
 
@@ -203,8 +251,9 @@
     if (peer.syncing) return "Syncing…";
     if (peer.pairingPending) return "Waiting to pair";
     if (peer.connected) return "Connected";
-    if (peer.lastSyncedAt) return `Synced ${whenLabel(peer.lastSyncedAt)}`;
-    return "Not synced yet";
+    const where = peer.nearby ? " · on this network" : "";
+    if (peer.lastSyncedAt) return `Synced ${whenLabel(peer.lastSyncedAt)}${where}`;
+    return `Not synced yet${where}`;
   }
 </script>
 
@@ -233,54 +282,130 @@
   </p>
   {#if sync.status.enabled}
     <div class="sync" data-testid="sync-setup">
-      <div class="set-field set-field-stack">
-        <span class="set-field-label">This device's code</span>
-        <div class="row">
-          {#if sync.status.pairingCode}
-            <code
-              class="chip mono"
-              class:renewed
-              title={sync.status.pairingCode}
-              data-testid="sync-code">{shortCode(sync.status.pairingCode)}</code
-            >
-            <Button onclick={copyPairingCode}>{codeCopied ? "Copied" : "Copy"}</Button>
-            <Button onclick={regeneratePairingCode} disabled={sync.busy}>New code</Button>
-          {:else}
-            <span class="chip waiting">Starting up…</span>
-          {/if}
+      <div class="set-group-head">
+        <h4 class="set-group-title">Pair a device</h4>
+      </div>
+      <div class="mode" data-testid="sync-pair-nearby">
+        <div class="mode-head">
+          <span class="mode-name">Nearby</span>
+          <span class="mode-state" class:on={nearbyOpen}>
+            {nearbyOpen ? "Looking…" : "Same network"}
+          </span>
         </div>
+        <Field label="Nearby devices">
+          {#if nearbyOpen}
+            <Button onclick={() => void sync.leaveNearby()}>Stop</Button>
+          {:else}
+            <Button onclick={openNearby} disabled={sync.busy}>Pair nearby</Button>
+          {/if}
+        </Field>
+        {#if !nearbyOpen}
+          <p class="set-hint">
+            Press Pair nearby on both devices. They find each other on this network.
+          </p>
+        {:else}
+          <p class="set-hint" aria-live="polite">
+            Your other devices on this network can find this one as
+            <strong>{sync.status.deviceName}</strong> while this page is open, for up to two
+            minutes.
+          </p>
+        {/if}
+        {#if searching && sync.status.nearby.length === 0}
+          <p class="set-hint looking" aria-live="polite">
+            Press Pair nearby on the other device too.
+          </p>
+        {:else if searching}
+          <ul class="peers nearby" data-testid="sync-nearby">
+            {#each sync.status.nearby as device (device.id)}
+              <li>
+                <div class="peer-line">
+                  <span class="peer-name">{device.name}</span>
+                  {#if !device.compatible}
+                    <span class="peer-state">Needs the same version of Set</span>
+                  {/if}
+                  <Button
+                    variant="primary"
+                    onclick={() => pairNearby(device)}
+                    disabled={sync.busy || !device.compatible}
+                    >{knocking?.id === device.id ? "Waiting" : "Pair"}</Button
+                  >
+                </div>
+                {#if knocking?.id === device.id}
+                  <p class="peer-why" aria-live="polite">
+                    Type the number {device.name} shows, and click Allow on both.
+                  </p>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+
+      <div class="mode" data-testid="sync-pair-code">
+        <div class="mode-head">
+          <span class="mode-name">With a code</span>
+          <span class="mode-state">Any network</span>
+        </div>
+        <Field label="This device's code">
+          <div class="controls">
+            {#if sync.status.pairingCode}
+              <div class="chip mono code-field" class:renewed>
+                <code
+                  class="code-text"
+                  title={sync.status.pairingCode}
+                  data-testid="sync-code">{shortCode(sync.status.pairingCode)}</code
+                >
+                <button
+                  type="button"
+                  class="control quiet chip-action"
+                  title={codeCopied ? "Copied" : "Copy code"}
+                  aria-label={codeCopied ? "Copied" : "Copy this device's code"}
+                  onclick={copyPairingCode}
+                >
+                  <Icon name={codeCopied ? "check" : "copy"} />
+                </button>
+              </div>
+              <Button onclick={regeneratePairingCode} disabled={sync.busy}
+                >New code</Button
+              >
+            {:else}
+              <span class="chip waiting">Starting up…</span>
+            {/if}
+          </div>
+        </Field>
         <p class="set-hint" aria-live="polite">
           {#if renewed && sync.lastPaired}
             {sync.lastPaired.name} used the last code. This one is for your next device.
           {:else}
-            One code pairs one device. You'll be asked to allow it here.
+            For a device that isn't on this network. One code pairs one device, and you'll
+            be asked to allow it here.
           {/if}
         </p>
-      </div>
-      <div class="set-field set-field-stack">
-        <span class="set-field-label">Pair a device</span>
-        <div class="row">
-          <input
-            class="control chip mono"
-            type="text"
-            placeholder="Paste the code from your other device"
-            aria-label="The other device's pairing code"
-            bind:value={pairingInput}
-            disabled={pairing}
-            onkeydown={(e) => e.key === "Enter" && pairDevice()}
-          />
-          <Button
-            variant="primary"
-            onclick={pairDevice}
-            disabled={sync.busy || !pairingInput.trim()}
-          >
-            {pairing ? "Waiting" : "Pair"}
-          </Button>
-        </div>
+        <Field label="The other device's code" htmlFor="sync-pair-code">
+          <div class="controls">
+            <input
+              id="sync-pair-code"
+              class="control chip mono"
+              type="text"
+              placeholder="Paste other device's code"
+              bind:value={pairingInput}
+              disabled={pairing}
+              onkeydown={(e) => e.key === "Enter" && pairDevice()}
+            />
+            <Button
+              variant="primary"
+              onclick={pairDevice}
+              disabled={sync.busy || !pairingInput.trim()}
+            >
+              {pairing ? "Waiting" : "Pair"}
+            </Button>
+          </div>
+        </Field>
         {#if pairing}
           <p class="set-hint" aria-live="polite">Click Allow on the other device.</p>
         {/if}
       </div>
+
       <div class="set-group-head">
         <h4 class="set-group-title">Devices</h4>
         {#if sync.status.peers.length > 0}
@@ -371,16 +496,63 @@
     gap: 0.4rem;
   }
 
-  .row {
+  .looking {
+    color: var(--text-subtle);
+  }
+
+  .mode {
+    padding: 0.75rem 0.85rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .mode + .mode {
+    margin-top: 0.6rem;
+  }
+  .mode-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .mode-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .mode-state {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .mode-state.on {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .mode .chip,
+  .mode .peers {
+    background: var(--bg);
+  }
+  .mode input.chip:hover {
+    background: var(--bg);
+  }
+
+  .controls {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.4rem;
-
-    max-width: 34rem;
+    min-width: 0;
+  }
+  .controls > :global(.btn) {
+    min-width: 5.5rem;
   }
 
   .chip {
-    flex: 1;
+    flex: none;
+    width: 16rem;
     min-width: 0;
     box-sizing: border-box;
     height: 1.9rem;
@@ -403,8 +575,26 @@
     font-family: var(--font-mono);
   }
 
-  code.chip {
+  .code-field {
+    gap: 0.3rem;
+    padding-right: 0.2rem;
+  }
+  .code-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     user-select: text;
+  }
+  .chip-action {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    font-size: 0.85rem;
   }
   /* The code just changed under the user; draw the eye to it. */
   .chip.renewed {
@@ -430,8 +620,11 @@
     padding-top: 0.9rem;
     border-top: 1px solid var(--border);
   }
-  .sync .set-field-stack + .set-field-stack {
-    margin-top: 0.9rem;
+  .sync .set-hint + :global(.set-field) {
+    margin-top: 0.75rem;
+  }
+  .nearby {
+    margin-top: 0.45rem;
   }
 
   .empty {

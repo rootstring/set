@@ -18,8 +18,9 @@ export interface ConfirmRequest {
   onDismiss?: () => void;
   /** Nothing brings this back, so the popover opens on Cancel instead. */
   permanent: boolean;
+  entry?: { label: string; digits: number };
   /** `asked` is false when the confirmation was skipped; the caller then shows the undo toast. */
-  onConfirm: (asked: boolean) => void;
+  onConfirm: (asked: boolean, entered?: string) => void;
   onCancel?: () => void;
 }
 
@@ -36,12 +37,12 @@ class Confirms {
     this.request = request;
   }
 
-  confirm(dontAskAgain: boolean): void {
+  confirm(dontAskAgain: boolean, entered?: string): void {
     const request = this.request;
     this.request = null;
     if (!request) return;
     if (dontAskAgain && request.remember) settings.setConfirmDelete(false);
-    request.onConfirm(true);
+    request.onConfirm(true, entered);
   }
 
   cancel(): void {

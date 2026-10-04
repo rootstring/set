@@ -1019,8 +1019,12 @@ impl Session {
                 Response::Ok
             }
 
-            Request::Claim { .. } => {
-                return Err("a pairing claim was routed to the wrong place".to_string())
+            Request::Claim { .. }
+            | Request::Introduce
+            | Request::Knock { .. }
+            | Request::Reveal { .. }
+            | Request::ConfirmKnock => {
+                return Err("a pairing request was routed to the wrong place".to_string())
             }
         })
     }

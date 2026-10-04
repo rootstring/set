@@ -99,6 +99,19 @@ fn silence_for(request: &Request) -> Option<Duration> {
 }
 
 pub async fn request(connection: &Connection, request: &Request) -> Result<Response, String> {
+    request_limited(connection, request, protocol::MAX_MESSAGE).await
+}
+
+/// For a reply from a device that isn't paired, which is no bigger than a claim.
+pub async fn request_small(connection: &Connection, request: &Request) -> Result<Response, String> {
+    request_limited(connection, request, protocol::MAX_CLAIM).await
+}
+
+async fn request_limited(
+    connection: &Connection,
+    request: &Request,
+    limit: usize,
+) -> Result<Response, String> {
     let (mut send, mut recv) = connection
         .open_bi()
         .await
@@ -113,7 +126,7 @@ pub async fn request(connection: &Connection, request: &Request) -> Result<Respo
         })?;
     send.finish()
         .map_err(|e| format!("finishing a sync request: {e}"))?;
-    let bytes = read_reply(&mut recv, protocol::MAX_MESSAGE, silence_for(request)).await?;
+    let bytes = read_reply(&mut recv, limit, silence_for(request)).await?;
     protocol::decode(&bytes)
 }
 

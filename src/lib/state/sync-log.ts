@@ -35,6 +35,13 @@ const REASONS: Record<string, string> = {
   declined: "it wasn't allowed",
   no_answer: "nobody answered the prompt in time",
   throttled: "too many pairing attempts. Try again in a few minutes",
+  not_discoverable: "it isn't discoverable",
+  declined_nearby: "it wasn't allowed",
+  declined_here: "it wasn't allowed here",
+  digits_mismatch: "the number typed here wasn't the one on the other device",
+  knock_expired: "the request ran out of time",
+  knock_mismatch: "the other device's answer didn't check out",
+  pairing_busy: "another pairing prompt was open",
   transport: "the connection dropped",
   scan: "the notes folder couldn't be read",
   apply: "a file couldn't be written",
@@ -72,6 +79,14 @@ export function describe(entry: SyncLogEntry): string {
       return "Sync stopped";
     case "sync.start_failed":
       return withReason("Sync couldn't start", entry);
+    case "nearby.discoverable":
+      return "This device was made discoverable";
+    case "nearby.hidden":
+      return "This device stopped being discoverable";
+    case "nearby.searching":
+      return "Looked for nearby devices";
+    case "sync.mdns_unavailable":
+      return "Can't look for devices on this network, so sync goes through the internet";
     case "peer.connected":
       return `Connected to ${who(entry)}`;
     case "peer.unreachable":

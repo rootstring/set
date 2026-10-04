@@ -11,6 +11,7 @@ export interface SyncPeer {
   id: string;
   name: string;
   connected: boolean;
+  nearby: boolean;
   syncing: boolean;
   lastSyncedAt: number | null;
   lastError: string | null;
@@ -18,6 +19,12 @@ export interface SyncPeer {
 
   /** Files the last round with this device wanted and couldn't carry. */
   tooBig: TooBigFile[];
+}
+
+export interface NearbyDevice {
+  id: string;
+  name: string;
+  compatible: boolean;
 }
 
 export interface TooBigFile {
@@ -34,13 +41,20 @@ export interface SyncStatus {
   protocolVersion: number;
   pairingCode: string | null;
   peers: SyncPeer[];
+  discoverable: boolean;
+  /** ms since the epoch. */
+  searchingUntil: number | null;
+  nearby: NearbyDevice[];
   lastError: string | null;
 }
 
-/** Another device used this one's code and is waiting for Allow. */
 export interface PairRequest {
   id: number;
   name: string;
+  checkDigits?: string;
+  /** This device picked the other off its nearby list, so it types the digits in instead. */
+  asking?: boolean;
+  digitCount?: number;
 }
 
 /** Nothing has changed on either device yet. */
@@ -71,6 +85,9 @@ const OFF: SyncStatus = {
   protocolVersion: 0,
   pairingCode: null,
   peers: [],
+  discoverable: false,
+  searchingUntil: null,
+  nearby: [],
   lastError: null,
 };
 
@@ -131,13 +148,17 @@ class SyncState {
       await listen<{ id: number }>("sync:preview-closed", (event) => {
         if (this.previewRequest?.id === event.payload.id) this.previewRequest = null;
       }),
-      await listen<{ name: string }>("sync:paired", (event) => {
-        this.lastPaired = { name: event.payload.name, at: Date.now() };
+      await listen<{ name: string; byCode: boolean }>("sync:paired", (event) => {
+        // Only a code is used up by pairing; one from the nearby list leaves it as it was.
+        if (event.payload.byCode)
+          this.lastPaired = { name: event.payload.name, at: Date.now() };
         toasts.done(`Paired with ${event.payload.name}`);
       }),
     );
     // A preview a reloaded window left up has nobody to answer it.
     await invoke("sync_answer_preview", { id: null, go: false }).catch(() => {});
+    // Nor is the Sync page that made this device discoverable still open.
+    await this.leaveNearby();
     await this.refresh();
   }
 
@@ -194,12 +215,37 @@ class SyncState {
     });
   }
 
-  async answerPair(allow: boolean): Promise<void> {
+  async setDiscoverable(on: boolean): Promise<void> {
+    this.status = await invoke<SyncStatus>("sync_set_discoverable", { on });
+  }
+
+  async searchNearby(on: boolean): Promise<void> {
+    this.status = await invoke<SyncStatus>("sync_search_nearby", { on });
+  }
+
+  /** Both looking and findable, so it doesn't matter which device starts. */
+  async openNearby(): Promise<void> {
+    await this.setDiscoverable(true);
+    await this.searchNearby(true);
+  }
+
+  async leaveNearby(): Promise<void> {
+    if (!this.ready) return;
+    await Promise.allSettled([this.setDiscoverable(false), this.searchNearby(false)]);
+  }
+
+  async pairNearby(id: string): Promise<void> {
+    await this.run(async () => {
+      this.status = await invoke<SyncStatus>("sync_pair_nearby", { id });
+    });
+  }
+
+  async answerPair(allow: boolean, digits?: string): Promise<void> {
     const request = this.pairRequest;
     this.pairRequest = null;
     if (!request) return;
     try {
-      await invoke("sync_answer_pair", { id: request.id, allow });
+      await invoke("sync_answer_pair", { id: request.id, allow, digits: digits ?? null });
     } catch {
       // unanswered, the claim times out on its own
     }
