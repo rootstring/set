@@ -130,6 +130,13 @@ group("what the user reads", () => {
         entry("peer.unreachable", [...PEER, ["error", "no route to host"]], "warn"),
       ),
       describe(entry("pair.refused", [...PEER, ["reason", "wrong_code"]], "warn")),
+      describe(entry("pair.refused", [...PEER, ["reason", "not_discoverable"]], "warn")),
+      describe(entry("pair.refused", [...PEER, ["reason", "declined_nearby"]], "warn")),
+      describe(entry("pair.refused", [...PEER, ["reason", "knock_mismatch"]], "warn")),
+      describe(entry("pair.rejected", [...PEER, ["reason", "knock_expired"]], "error")),
+      describe(entry("pair.rejected", [...PEER, ["reason", "declined_here"]], "error")),
+      describe(entry("pair.refused", [...PEER, ["reason", "pairing_busy"]], "warn")),
+      describe(entry("sync.mdns_unavailable", [["error", "no ipv4"]], "warn")),
     ];
     for (const line of lines) {
       expect(line).not.toMatch(/_|=|\bpeer\b/);

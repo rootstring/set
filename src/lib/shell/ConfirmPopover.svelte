@@ -10,7 +10,20 @@
   let el = $state<HTMLDivElement>();
   let confirmButton = $state<HTMLButtonElement>();
   let cancelButton = $state<HTMLButtonElement>();
+  let entryInput = $state<HTMLInputElement>();
   let dontAskAgain = $state(false);
+  let entered = $state("");
+
+  /** Only the digits count, so "123 456" and "123456" are the same. */
+  const enteredDigits = $derived(entered.replace(/\D/g, ""));
+  const entryDone = $derived(
+    !request?.entry || enteredDigits.length === request.entry.digits,
+  );
+
+  function confirm(): void {
+    if (!entryDone) return;
+    confirms.confirm(dontAskAgain, request?.entry ? enteredDigits : undefined);
+  }
 
   let top = $state(0);
   let left = $state(0);
@@ -36,10 +49,15 @@
       return;
     }
     dontAskAgain = false;
+    entered = "";
     reposition();
     // After paint: the popover is `visibility: hidden` until measured, and a hidden button cannot
     // take focus.
-    const wanted = request.permanent ? cancelButton : confirmButton;
+    const wanted = request.entry
+      ? entryInput
+      : request.permanent
+        ? cancelButton
+        : confirmButton;
     void tick().then(() => wanted?.focus());
 
     const onScroll = () => reposition();
@@ -93,6 +111,26 @@
       <span class="caret" style="left: {caret}px" aria-hidden="true"></span>
     {/if}
     <p class="message">{request.message}</p>
+    {#if request.entry}
+      <input
+        bind:this={entryInput}
+        bind:value={entered}
+        class="entry"
+        aria-label={request.entry.label}
+        placeholder={"0".repeat(request.entry.digits)}
+        inputmode="numeric"
+        autocomplete="off"
+        spellcheck="false"
+        maxlength={request.entry.digits + 4}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            confirm();
+          }
+        }}
+        data-testid="confirm-entry"
+      />
+    {/if}
     {#if request.remember}
       <label class="remember">
         <input type="checkbox" bind:checked={dontAskAgain} />
@@ -107,7 +145,8 @@
         bind:ref={confirmButton}
         variant="primary"
         tone={request.danger === false ? "neutral" : "danger"}
-        onclick={() => confirms.confirm(dontAskAgain)}
+        disabled={!entryDone}
+        onclick={confirm}
       >
         {request.confirmLabel}
       </Button>
@@ -126,6 +165,27 @@
     font-size: 0.8125rem;
     line-height: 1.45;
     color: var(--text);
+  }
+
+  .entry {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 0.75rem;
+    padding: 0.4rem 0.5rem;
+    font-size: 1rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.2em;
+    text-align: center;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .entry:focus {
+    outline: none;
+    border-color: var(--accent);
   }
 
   .remember {

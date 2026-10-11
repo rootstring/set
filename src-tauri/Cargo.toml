@@ -60,6 +60,9 @@ iroh = "1"
 # pair mismatched lines. Fixed in Cargo.lock; if `cargo update` brings it back, `cargo update -p
 # wmi`. scripts/check-lockfile.mjs guards it.
 
+# Paired devices on the same network, found without the relay (src/sync/nearby.rs).
+iroh-mdns-address-lookup = "0.6"
+tokio-stream = "0.1"
 # `EndpointTicket`: endpoint id plus how to reach it, as one pasteable string.
 iroh-tickets = "1"
 postcard = { version = "1", features = ["alloc"] }

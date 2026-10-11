@@ -11,21 +11,22 @@ can't read something, it leaves it alone on both devices.
 
 ## Modules
 
-| Module        | Job                                                                   |
-| ------------- | --------------------------------------------------------------------- |
+| Module        | Job                                                                    |
+| ------------- | ---------------------------------------------------------------------- |
 | `manifest.rs` | what a folder holds, what couldn't be read, and what counts as content |
-| `plan.rs`     | what a round does, for both devices at once (pure)                    |
-| `merge.rs`    | three-way merge of a note                                             |
-| `preview.rs`  | a plan as someone can read it before it runs, and a note's line diff  |
-| `apply.rs`    | carrying out one device's half of a plan, safely                      |
-| `round.rs`    | one round, from both ends: the coordinator and the device answering   |
-| `ids.rs`      | repairing two notes that carry one page id, the way the app does      |
-| `session.rs`  | the transport: streams, message limits, silence                       |
-| `protocol.rs` | wire messages                                                         |
-| `pairing.rs`  | pairing codes and claims                                              |
-| `state.rs`    | identity, paired devices, baselines, lineage, ancestors, spool        |
-| `mod.rs`      | endpoint, peer tasks, Tauri commands                                  |
-| `e2e/`        | real devices over loopback: scenarios, and seeded random work (fuzz)  |
+| `plan.rs`     | what a round does, for both devices at once (pure)                     |
+| `merge.rs`    | three-way merge of a note                                              |
+| `preview.rs`  | a plan as someone can read it before it runs, and a note's line diff   |
+| `apply.rs`    | carrying out one device's half of a plan, safely                       |
+| `round.rs`    | one round, from both ends: the coordinator and the device answering    |
+| `ids.rs`      | repairing two notes that carry one page id, the way the app does       |
+| `session.rs`  | the transport: streams, message limits, silence                        |
+| `protocol.rs` | wire messages                                                          |
+| `pairing.rs`  | pairing codes and claims                                               |
+| `nearby.rs`   | finding devices on the same network over mDNS                          |
+| `state.rs`    | identity, paired devices, baselines, lineage, ancestors, spool         |
+| `mod.rs`      | endpoint, peer tasks, Tauri commands                                   |
+| `e2e/`        | real devices over loopback: scenarios, and seeded random work (fuzz)   |
 
 `plan.rs` has no disk or network access (three manifests and two lineages in, operations out), so
 its rules are tested as cases, and `e2e/` tests them again as whole rounds between real devices.
@@ -316,6 +317,47 @@ path.
   doesn't. Prompts are handled one at a time and recheck the secret, so a second device with the
   same code is refused as "used or replaced". If a freshly pasted code is refused, the claiming
   device removes the pairing.
+- **Nearby, without a code:** one button under Settings → Sync, **Pair nearby**, pressed on both
+  devices. It turns on two things on that device, each of which the backend keeps separately:
+  - **Discoverable** (`sync_set_discoverable`) lets other devices on the network learn this one's
+    name (`Request::Introduce`) and ask to pair (`Knock`). Off, both are refused
+    (`not_discoverable`) without a log line.
+  - **Searching** (`sync_search_nearby`) asks every device heard over mDNS who it is, every
+    `SEARCH_EVERY`, and lists the discoverable ones. A device that stops being discoverable drops
+    off the list.
+
+  Neither is saved. Both turn off after `DISCOVERABLE_WINDOW` / `SEARCH_WINDOW` (two minutes), on
+  Stop, on leaving the Sync page, on a reload or restart, and on both devices once a pairing
+  succeeds.
+
+  Picking a device on the list starts a three-step exchange (`pairing::Knocks`), and each device
+  saves the other only once someone has clicked Allow **on it**:
+  1. `Knock` carries a commitment to the picker's random nonce; the device picked answers with its
+     own nonce (`Knocked`).
+  2. `Reveal` opens the commitment, and both devices work out the same six **check digits**
+     (`pairing::check_digits`, from both ids and both nonces). The device picked shows them with
+     **"Pair with &lt;name&gt;?"**. The picker doesn't show them: it asks for them to be **typed
+     in**, read off the other device, and counts a wrong number as turning it down
+     (`digits_mismatch`). The device picked answers `Allowed` once someone clicks Allow there.
+  3. `ConfirmKnock` follows once the right digits are typed on the picker and Allow clicked, and
+     only then does the device picked save it; the picker saves it on `Paired`. A device picked
+     that already has the picker (its `Paired` was lost last time) goes through all three steps
+     again and replies `Paired` without saving it twice. A picker never takes `Paired` before
+     its own prompt is answered.
+
+  So:
+  - A device that says it's yours can't pair with you on its own say-so: your device asks you
+    too, and the device you meant shows no prompt at all.
+  - Names are whatever a device calls itself (cleaned of control and invisible characters,
+    `pairing::device_name`), so a stranger can take yours. Neither device chose its nonce knowing
+    the other's, so a device in the middle can't make its digits match yours except by a one in a
+    million chance. Typing them in, rather than comparing them, means nobody can allow it without
+    looking.
+  - Only a discoverable device takes a knock, and only from a device it hears over mDNS.
+  - Turning one down, or leaving it unanswered, hides the device (ids cost nothing, so a stranger
+    would just knock again as someone else); pressing Pair nearby again allows one more prompt.
+  - The pairing code isn't involved and isn't rotated.
+
 - **Allowlist:** iroh authenticates the peer's key before any data is read, so a paired id is
   allowed and anything else isn't. An unpaired peer can only send a `Claim` (capped at
   `MAX_CLAIM`).
@@ -326,6 +368,37 @@ path.
 - **Key storage:** the private key is in `sync.json` in the OS config dir (`0600`), outside the
   synced folder. A malformed `sync.json` is reported, not regenerated, because regenerating would
   change the device's identity.
+
+## Devices on the same network
+
+A device is dialed by its endpoint id. The addresses saved at pairing go stale as soon as either
+device changes network, and iroh's own lookup (n0's DNS and relay) needs the internet. So with sync on,
+each device also listens over mDNS (`nearby.rs`) for `_set-sync._udp.local`, under its own service
+name rather than iroh's shared one so Set only hears from Set, and iroh resolves a paired device's id
+from those announcements alongside DNS. Two devices on one Wi-Fi then sync directly, with no internet,
+wherever DHCP has moved them.
+
+- **Nothing more is trusted.** An announcement is an endpoint id and its addresses: a pairing code
+  without the secret. Being nearby grants nothing; the allowlist and someone clicking Allow are
+  still the only ways in (see Pairing and trust).
+- **What it reveals.** A device announces itself only when someone could want to find it: it has a
+  paired device, or it is discoverable or searching (`Inner::announcing`). Pairing, unpairing and
+  either switch change this while sync runs, by swapping in a new mDNS lookup (`nearby::Lookup`)
+  rather than restarting the endpoint. A
+  new lookup hears everyone again, so the devices the old one heard are forgotten (it can't say
+  which of them left). Then anyone on the network can see that a Set
+  device is there and its endpoint id, which is stable, so the device can be recognised across
+  networks. The device name isn't in the announcement; another Set device can learn it only while
+  this one is discoverable.
+- **Bounded.** At most `MAX_HEARD` unpaired devices are tracked, and replies from unpaired devices
+  are read up to `MAX_CLAIM` (`session::request_small`), so a host announcing many ids can't make
+  a search dial or read without limit.
+- **Optional.** Where the network allows no multicast, or macOS hasn't been allowed Local Network
+  access (`NSLocalNetworkUsageDescription` in `Info.plist`; refused sends fail with "No route to
+  host"), the lookup is logged as `sync.mdns_unavailable` or simply hears nothing, and sync goes
+  through the relay as before.
+- **Shown.** A paired device announcing itself is marked `nearby` in its status, and Settings → Sync
+  says "on this network" beside it.
 
 ## Transport
 

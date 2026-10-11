@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::apply::Applied;
 use super::manifest::{Hash, Scan};
-use super::pairing::Secret;
+use super::pairing::{Nonce, Secret};
 use super::plan::{Batch, Settled, Stamp, Version};
 use super::state::{Generation, GenerationId, Mark};
 
@@ -83,6 +83,24 @@ pub enum Request {
     Lineage {
         pages: Vec<(String, Option<Version>)>,
     },
+
+    /// Answered only while discoverable.
+    Introduce,
+
+    /// Pairing without a code; the rest is `pairing::Knocks`.
+    Knock {
+        version: u32,
+        device_name: String,
+        notes_id: Option<String>,
+        /// `pairing::commit` of the nonce `Reveal` carries.
+        commit: [u8; 32],
+    },
+
+    Reveal {
+        nonce: Nonce,
+    },
+
+    ConfirmKnock,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,6 +147,17 @@ pub enum Response {
         actor: String,
         stamps: Vec<Option<Stamp>>,
     },
+
+    Introduced {
+        version: u32,
+        device_name: String,
+    },
+
+    Knocked {
+        nonce: Nonce,
+    },
+
+    Allowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,6 +346,18 @@ mod tests {
             9
         );
         assert_eq!(index(&Request::Lineage { pages: Vec::new() }), 10);
+        assert_eq!(index(&Request::Introduce), 11);
+        assert_eq!(
+            index(&Request::Knock {
+                version: VERSION,
+                device_name: String::new(),
+                notes_id: None,
+                commit: [0; 32],
+            }),
+            12
+        );
+        assert_eq!(index(&Request::Reveal { nonce: [0; 32] }), 13);
+        assert_eq!(index(&Request::ConfirmKnock), 14);
     }
 
     #[test]
@@ -372,6 +413,15 @@ mod tests {
             }),
             11
         );
+        assert_eq!(
+            index(&Response::Introduced {
+                version: VERSION,
+                device_name: String::new(),
+            }),
+            12
+        );
+        assert_eq!(index(&Response::Knocked { nonce: [0; 32] }), 13);
+        assert_eq!(index(&Response::Allowed), 14);
     }
 
     #[test]
