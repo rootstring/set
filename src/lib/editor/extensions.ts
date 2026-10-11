@@ -29,6 +29,7 @@ import { ListMixing } from "./list-mixing";
 import { CodeBlockHighlight, CodeBlockMarkdown } from "./code-block";
 import { EditorTab, LeadingBackspace } from "./keymaps";
 import { DragHitArea } from "./drag-hit-area";
+import { DragScroll } from "./drag-scroll";
 import { TodoRollup } from "./todo-rollup";
 import { lowlight } from "./lowlight";
 import { createDragHandle, NESTED, type DragHandleController } from "./drag-handle";
@@ -158,6 +159,7 @@ export function createExtensions(options: EditorSchemaOptions = {}): Extensions 
       DateMentionCommand,
       DragHandle.configure({ ...dragHandle, nested: NESTED }),
       DragHitArea,
+      DragScroll,
       TodoRollup,
     );
   }
