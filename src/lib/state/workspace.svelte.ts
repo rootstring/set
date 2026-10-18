@@ -598,6 +598,7 @@ class Workspace {
       toasts.error(checkFolder(`Couldn't create the context “${name}”.`));
       return null;
     }
+    settings.contextCreated(this.contexts, created);
     await this.refresh();
     await this.switchContext(created);
     return created;
@@ -614,6 +615,7 @@ class Workspace {
     }
 
     viewState.renameContext(from, renamed);
+    settings.contextRenamed(this.contexts, from, renamed);
     const here = this.activeContext === from;
     if (here) this.setContext(renamed);
     await this.refresh();

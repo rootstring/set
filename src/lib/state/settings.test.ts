@@ -73,3 +73,21 @@ describe("settings loaded from storage", () => {
 
 /** The blue preset's light value, the first entry of `SURFACE_TINTS`. */
 const SURFACE_TINTS_COLOR = "oklch(52% 0.21 266)";
+
+describe("context order", () => {
+  const named = (...names: string[]) => names.map((name) => ({ name }));
+
+  it("puts a new context last, even before any reordering", async () => {
+    const { settings } = await loadSettings({});
+    settings.contextCreated(named("Work", "Personal"), "Archive");
+    const shown = settings.orderContexts(named("Work", "Personal", "Archive"));
+    expect(shown.map((c) => c.name)).toEqual(["Personal", "Work", "Archive"]);
+  });
+
+  it("keeps a renamed context in its place before any reordering", async () => {
+    const { settings } = await loadSettings({});
+    settings.contextRenamed(named("Apple", "Banana", "Cherry"), "Apple", "Zebra");
+    const shown = settings.orderContexts(named("Zebra", "Banana", "Cherry"));
+    expect(shown.map((c) => c.name)).toEqual(["Zebra", "Banana", "Cherry"]);
+  });
+});

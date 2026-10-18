@@ -892,6 +892,31 @@ class Settings {
     this.commit();
   }
 
+  /** A new context goes last, so the ones before it keep their shortcuts. */
+  contextCreated(existing: { name: string }[], name: string): void {
+    const order = this.pinnedOrder(existing).filter((n) => n !== name);
+    this.setContextOrder([...order, name]);
+  }
+
+  /** A renamed context keeps its place, and its shortcut. */
+  contextRenamed(existing: { name: string }[], from: string, to: string): void {
+    const order = this.pinnedOrder(existing).filter((n) => n !== to);
+    this.setContextOrder(order.map((n) => (n === from ? to : n)));
+  }
+
+  /**
+   * The order as shown now, written out in full. Names of deleted contexts stay, so one
+   * restored from Trash returns to its old place.
+   */
+  private pinnedOrder(existing: { name: string }[]): string[] {
+    const order = [...this.contextOrder];
+    const ranked = new Set(order);
+    for (const c of this.orderContexts(existing)) {
+      if (!ranked.has(c.name)) order.push(c.name);
+    }
+    return order;
+  }
+
   orderContexts<T extends { name: string }>(contexts: T[]): T[] {
     const rank = new Map(this.contextOrder.map((name, i) => [name, i]));
     return [...contexts].sort((a, b) => {
