@@ -262,7 +262,7 @@ jobs:
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-22.04
     steps:
-      - name: Every platform is in latest.json
+      - name: Every platform has an installable bundle in latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -271,18 +271,39 @@ jobs:
           gh release download "$TAG" \
             --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir .
 
-          missing=0
+          # Feed URLs are asset API links, so map them back to file names.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets -q '.assets[] | "\(.apiUrl) \(.name)"' > assets.txt
+
+          # The updater is built without its `zip` feature (src-tauri/Cargo.toml), so Windows and
+          # Linux take only a bare installer. A zipped one fails on Windows, and on Linux a
+          # .AppImage.tar.gz is written over the AppImage as-is, which breaks the install.
+          failed=0
           for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
             url=$(jq -r --arg p "$platform" '.platforms[$p].url // ""' latest.json)
             signature=$(jq -r --arg p "$platform" '.platforms[$p].signature // ""' latest.json)
             if [ -z "$url" ] || [ -z "$signature" ]; then
               echo "::error::latest.json has no signed bundle for $platform"
-              missing=1
-            else
-              echo "$platform -> $url"
+              failed=1
+              continue
             fi
+
+            name=$(awk -v u="$url" '$1 == u { print $2 }' assets.txt)
+            if [ -z "$name" ]; then
+              echo "::error::$platform points at $url, which is not an asset of $TAG"
+              failed=1
+              continue
+            fi
+
+            case "$platform:$name" in
+              darwin-*:*.app.tar.gz | linux-*:*.AppImage | windows-*:*-setup.exe | windows-*:*.msi)
+                echo "$platform -> $name" ;;
+              *)
+                echo "::error::$platform points at $name, a format this updater cannot install"
+                failed=1 ;;
+            esac
           done
-          exit "$missing"
+          exit "$failed"
 
   # A plain version moves the updater feed. A pre-release is published but offered to nobody.
   publish:

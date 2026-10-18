@@ -45,7 +45,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
-tauri-plugin-updater = "2"
+# No `zip` feature: it only unpacks zipped Windows installers and tar.gz AppImages, and the feed
+# ships a bare setup.exe and AppImage (`createUpdaterArtifacts: true`). macOS tar.gz is unaffected.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 # Asking the OS is the only honest answer to "am I registered"; a settings bool would drift.
 tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
